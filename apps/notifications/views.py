@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from apps.core.pagination import StandardResultsSetPagination
 
-from .models import Notification
+from .models import DeviceToken, Notification
 from .serializers import (MarkNotificationReadSerializer,
                           NotificationListSerializer, NotificationSerializer)
 
@@ -114,6 +114,66 @@ class NotificationViewSet(viewsets.ModelViewSet):
         notification.delete()
 
         return Response({"message": "Notification marked as read and deleted."})
+
+    @action(detail=False, methods=["post"])
+    def register_device(self, request):
+        """Register a device token for push notifications."""
+        expo_push_token = request.data.get("expo_push_token")
+        device_id = request.data.get("device_id", "")
+        device_name = request.data.get("device_name", "")
+        platform = request.data.get("platform", "android")
+
+        if not expo_push_token:
+            return Response(
+                {"error": "expo_push_token is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get device type from platform
+        device_type = "android" if platform.lower() == "android" else "ios"
+
+        # Create or update device token
+        token, created = DeviceToken.objects.update_or_create(
+            device_token=expo_push_token,
+            user=request.user,
+            defaults={
+                "device_type": device_type,
+                "device_name": device_name,
+                "is_active": True,
+            }
+        )
+
+        return Response(
+            {
+                "message": "Device registered successfully",
+                "device_id": token.id
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=["post"])
+    def unregister_device(self, request):
+        """Unregister a device token."""
+        expo_push_token = request.data.get("expo_push_token")
+
+        if not expo_push_token:
+            return Response(
+                {"error": "expo_push_token is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        deleted, _ = DeviceToken.objects.filter(
+            device_token=expo_push_token,
+            user=request.user
+        ).delete()
+
+        if deleted:
+            return Response({"message": "Device unregistered successfully"})
+        else:
+            return Response(
+                {"error": "Device token not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 class AdminNotificationViewSet(viewsets.ModelViewSet):
