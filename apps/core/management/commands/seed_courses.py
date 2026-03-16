@@ -96,6 +96,7 @@ class Command(BaseCommand):
             {'code': 'BBM', 'name': 'Bachelor of Business Management', 'duration': 4},
             {'code': 'BABM', 'name': 'Bachelor of Arts in Business Management', 'duration': 4},
             {'code': 'BAGE', 'name': 'Bachelor of Agribusiness', 'duration': 4},
+            {'code': 'BASE', 'name': 'Bachelor of Agricultural Science and Entrepreneurship', 'duration': 4},
             {'code': 'BTM', 'name': 'Bachelor of Tourism Management', 'duration': 4},
             {'code': 'BBEST', 'name': 'Bachelor of Business and Enterprise Management', 'duration': 4},
             {'code': 'BPSM', 'name': 'Bachelor of Purchasing and Supply Management', 'duration': 4},

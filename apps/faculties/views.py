@@ -129,7 +129,7 @@ class SeedCoursesView(generics.GenericAPIView):
         
         # DBAM - Department of Business Administration & Management
         dbam, _ = Department.objects.get_or_create(code='DBAM', faculty=fbe, defaults={'name': 'Department of Business Administration & Management', 'description': 'Department of Business Administration and Management'})
-        for code, name, duration in [('BBM', 'Bachelor of Business Management', 4), ('BABM', 'Bachelor of Arts in Business Management', 4), ('BAGE', 'Bachelor of Agribusiness', 4), ('BTM', 'Bachelor of Tourism Management', 4), ('BBEST', 'Bachelor of Business and Enterprise Management', 4), ('BPSM', 'Bachelor of Purchasing and Supply Management', 4)]:
+        for code, name, duration in [('BBM', 'Bachelor of Business Management', 4), ('BABM', 'Bachelor of Arts in Business Management', 4), ('BAGE', 'Bachelor of Agribusiness', 4), ('BASE', 'Bachelor of Agricultural Science and Entrepreneurship', 4), ('BTM', 'Bachelor of Tourism Management', 4), ('BBEST', 'Bachelor of Business and Enterprise Management', 4), ('BPSM', 'Bachelor of Purchasing and Supply Management', 4)]:
             course, created = Course.objects.get_or_create(code=code, department=dbam, defaults={'name': name, 'duration_years': duration})
             if created: courses_created += 1
         
