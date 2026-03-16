@@ -4,6 +4,8 @@ import json
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
+from drf_spectacular.plumbing import build_basic_type
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -1292,6 +1294,11 @@ class AdminAwardPointsView(APIView):
 # EMAIL CAMPAIGN MANAGEMENT VIEWS
 # ===========================================
 
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_email_campaigns_list",
+    tags=["Admin Email Campaigns"]
+)
 class AdminEmailCampaignListView(APIView):
     """List all email campaigns."""
 
@@ -1446,6 +1453,11 @@ class AdminEmailCampaignCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_email_campaigns_retrieve",
+    tags=["Admin Email Campaigns"]
+)
 class AdminEmailCampaignDetailView(APIView):
     """Get details of an email campaign."""
 
@@ -2079,6 +2091,11 @@ class DashboardWidgetsView(APIView):
         return Response({'widgets': widgets})
 
 
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_dashboard_layouts_list",
+    tags=["Admin Dashboard"]
+)
 class DashboardLayoutsView(APIView):
     """View for dashboard layouts."""
     
@@ -2116,6 +2133,11 @@ class DashboardLayoutsView(APIView):
         })
 
 
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_dashboard_layouts_retrieve",
+    tags=["Admin Dashboard"]
+)
 class DashboardLayoutDetailView(APIView):
     """View for a specific dashboard layout."""
     

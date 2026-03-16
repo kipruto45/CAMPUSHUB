@@ -1,6 +1,6 @@
 """
 Caching utilities for CampusHub.
-Provides caching service with Redis backend.
+Provides caching service with in-memory (locmem) backend.
 """
 
 import hashlib
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class CacheService:
     """
-    Centralized caching service using Redis.
+    Centralized caching service using in-memory cache.
     Provides methods for caching, invalidation, and smart cache management.
     """
 

@@ -1,5 +1,6 @@
 """
 Rate Limiting and Throttling for CampusHub API Protection.
+Uses Django's in-memory cache (locmem) for rate limiting.
 """
 
 import time
@@ -11,7 +12,7 @@ from rest_framework.throttling import (AnonRateThrottle, SimpleRateThrottle,
 
 class CampusHubUserRateThrottle(UserRateThrottle):
     """
-    Custom user throttle that uses Redis for rate limiting.
+    Custom user throttle that uses in-memory cache for rate limiting.
     """
 
     scope = "user"
@@ -28,7 +29,7 @@ class CampusHubUserRateThrottle(UserRateThrottle):
 
 class CampusHubAnonRateThrottle(AnonRateThrottle):
     """
-    Custom anonymous throttle that uses Redis for rate limiting.
+    Custom anonymous throttle that uses in-memory cache for rate limiting.
     """
 
     scope = "anon"

@@ -2,7 +2,7 @@
 Enhanced Caching System for CampusHub.
 
 Provides:
-- Multi-layer caching (Redis + memory)
+- Multi-layer caching (memory)
 - Cache invalidation strategies
 - Cache decorators
 - Cache statistics
@@ -172,12 +172,13 @@ class EnhancedCacheService:
         if self._initialized:
             return
         
-        # Use Redis by default
+        # Use memory cache by default (no Redis needed)
         try:
-            self._backend = RedisCacheBackend()
-        except Exception:
-            logger.warning("Redis not available, using memory cache")
             self._backend = MemoryCacheBackend()
+        except Exception:
+            logger.warning("Memory cache failed, using dummy cache")
+            from django.core.cache import cache
+            self._backend = cache
         
         self._stats = {
             "hits": 0,

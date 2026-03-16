@@ -2,6 +2,8 @@
 Serializers for resources app.
 """
 
+from typing import Any, Optional
+
 from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
@@ -125,36 +127,36 @@ class ResourcePreviewSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_uploaded_by_name(self, obj):
+    def get_uploaded_by_name(self, obj) -> Optional[str]:
         if obj.uploaded_by:
             full_name = obj.uploaded_by.get_full_name()
             return full_name if full_name else obj.uploaded_by.email
         return None
 
-    def get_uploaded_by_avatar(self, obj):
+    def get_uploaded_by_avatar(self, obj) -> Optional[str]:
         if obj.uploaded_by and hasattr(obj.uploaded_by, 'avatar'):
             return obj.uploaded_by.avatar
         return None
 
-    def get_faculty_name(self, obj):
+    def get_faculty_name(self, obj) -> Optional[str]:
         return obj.faculty.name if obj.faculty else None
 
-    def get_department_name(self, obj):
+    def get_department_name(self, obj) -> Optional[str]:
         return obj.department.name if obj.department else None
 
-    def get_course_name(self, obj):
+    def get_course_name(self, obj) -> Optional[str]:
         return obj.course.name if obj.course else None
 
-    def get_course_code(self, obj):
+    def get_course_code(self, obj) -> Optional[str]:
         return obj.course.code if obj.course else None
 
-    def get_unit_name(self, obj):
+    def get_unit_name(self, obj) -> Optional[str]:
         return obj.unit.name if obj.unit else None
 
-    def get_unit_code(self, obj):
+    def get_unit_code(self, obj) -> Optional[str]:
         return obj.unit.code if obj.unit else None
 
-    def get_file_icon(self, obj):
+    def get_file_icon(self, obj) -> str:
         file_type_icons = {
             'pdf': '📄',
             'doc': '📝',
@@ -174,26 +176,26 @@ class ResourcePreviewSerializer(serializers.ModelSerializer):
         }
         return file_type_icons.get(obj.file_type.lower() if obj.file_type else '', '📁')
 
-    def get_thumbnail_url(self, obj):
+    def get_thumbnail_url(self, obj) -> Optional[str]:
         if obj.thumbnail:
             request = self.context.get("request")
             if request:
                 return request.build_absolute_uri(obj.thumbnail.url)
         return None
 
-    def get_file_url(self, obj):
+    def get_file_url(self, obj) -> Optional[str]:
         if obj.file:
             request = self.context.get("request")
             if request:
                 return request.build_absolute_uri(obj.file.url)
         return None
 
-    def get_tags_list(self, obj):
+    def get_tags_list(self, obj) -> list[str]:
         if obj.tags:
             return [tag.strip() for tag in obj.tags.split(',') if tag.strip()]
         return []
 
-    def get_is_bookmarked(self, obj):
+    def get_is_bookmarked(self, obj) -> bool:
         from apps.bookmarks.models import Bookmark
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -202,7 +204,7 @@ class ResourcePreviewSerializer(serializers.ModelSerializer):
             ).exists()
         return False
 
-    def get_is_favorited(self, obj):
+    def get_is_favorited(self, obj) -> bool:
         from apps.favorites.models import Favorite
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -211,7 +213,7 @@ class ResourcePreviewSerializer(serializers.ModelSerializer):
             ).exists()
         return False
 
-    def get_user_rating(self, obj):
+    def get_user_rating(self, obj) -> Optional[float]:
         from apps.ratings.models import Rating
         request = self.context.get("request")
         if request and request.user.is_authenticated:

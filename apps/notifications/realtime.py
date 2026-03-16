@@ -308,7 +308,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             text_data=json.dumps(
                 {
                     "type": "online_users_list",
-                    "message": "Online users tracking requires Redis",
+                    "message": "Online users tracking (using in-memory channels)",
                 }
             )
         )
