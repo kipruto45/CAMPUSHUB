@@ -37,7 +37,29 @@ def _check_channel_layer():
     return "unhealthy: channel layer backend missing", False
 
 
-def _build_status(include_channel_layer=False):
+def _check_cloudinary():
+    """Check Cloudinary connectivity."""
+    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', None)
+    api_key = getattr(settings, 'CLOUDINARY_API_KEY', None)
+    enabled = getattr(settings, 'CLOUDINARY_ENABLED', False)
+    
+    if not enabled:
+        return "disabled", True
+    
+    if not cloud_name or not api_key:
+        return "unhealthy: Cloudinary credentials not configured", False
+    
+    try:
+        from cloudinary.api import ping
+        result = ping()
+        if result.get('status') == 'ok':
+            return f"healthy: cloud_name={cloud_name}", True
+        return f"unhealthy: unexpected response: {result}", False
+    except Exception as e:
+        return f"unhealthy: {str(e)}", False
+
+
+def _build_status(include_channel_layer=False, include_cloudinary=False):
     payload = {"status": "healthy"}
 
     payload["database"], database_ok = _check_database()
@@ -47,6 +69,9 @@ def _build_status(include_channel_layer=False):
     if include_channel_layer:
         payload["channel_layer"], channel_ok = _check_channel_layer()
         checks.append(channel_ok)
+    if include_cloudinary:
+        payload["cloudinary"], cloudinary_ok = _check_cloudinary()
+        checks.append(cloudinary_ok)
 
     overall_status = 200 if all(checks) else 503
     if overall_status == 503:
@@ -168,3 +193,71 @@ def get_client_ip(request):
     else:
         ip = request.META.get('REMOTE_ADDR', '')
     return ip
+
+
+@api_view(["POST"])
+def test_cloudinary(request):
+    """
+    Test Cloudinary upload endpoint.
+    
+    Tests that Cloudinary is properly configured and can accept uploads.
+    
+    Returns:
+        200 OK: Cloudinary is working
+        400 Bad Request: Cloudinary is disabled
+        500 Error: Cloudinary test failed
+    """
+    from django.conf import settings
+    import base64
+    
+    enabled = getattr(settings, 'CLOUDINARY_ENABLED', False)
+    if not enabled:
+        return Response({
+            "status": "disabled",
+            "message": "Cloudinary is not enabled"
+        }, status=400)
+    
+    cloud_name = getattr(settings, 'CLOUDINARY_CLOUD_NAME', None)
+    api_key = getattr(settings, 'CLOUDINARY_API_KEY', None)
+    
+    if not cloud_name or not api_key:
+        return Response({
+            "status": "error",
+            "message": "Cloudinary credentials not configured"
+        }, status=500)
+    
+    try:
+        from cloudinary.uploader import upload
+        from cloudinary.api import delete
+        
+        # Create a minimal 1x1 transparent PNG
+        png_data = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+        
+        # Upload a test image
+        result = upload(
+            png_data,
+            public_id="campushub_health_test",
+            folder="campushub/tests",
+            resource_type="image"
+        )
+        
+        # Clean up the test image
+        delete("campushub/tests/campushub_health_test", resource_type="image")
+        
+        return Response({
+            "status": "success",
+            "message": f"Cloudinary is working. Cloud: {cloud_name}",
+            "result": {
+                "public_id": result.get('public_id'),
+                "url": result.get('url'),
+                "secure_url": result.get('secure_url')
+            }
+        }, status=200)
+        
+    except Exception as e:
+        return Response({
+            "status": "error",
+            "message": f"Cloudinary test failed: {str(e)}"
+        }, status=500)

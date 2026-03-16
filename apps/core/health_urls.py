@@ -13,4 +13,5 @@ urlpatterns = [
     path("ready/", health.readiness_check, name="readiness"),
     path("maintenance/", health.maintenance_check, name="maintenance"),
     path("test-email/", health.test_email, name="test-email"),
+    path("test-cloudinary/", health.test_cloudinary, name="test-cloudinary"),
 ]
