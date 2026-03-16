@@ -230,7 +230,7 @@ def test_cloudinary(request):
     
     try:
         from cloudinary.uploader import upload
-        from cloudinary.api import delete
+        from cloudinary.uploader import destroy as cloudinary_delete
         
         # Create a minimal 1x1 transparent PNG
         png_data = base64.b64decode(
@@ -246,7 +246,7 @@ def test_cloudinary(request):
         )
         
         # Clean up the test image
-        delete("campushub/tests/campushub_health_test", resource_type="image")
+        cloudinary_delete("campushub/tests/campushub_health_test", resource_type="image")
         
         return Response({
             "status": "success",
