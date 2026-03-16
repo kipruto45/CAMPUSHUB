@@ -80,6 +80,59 @@ def readiness_check(request):
     return Response(readiness_status, status=overall_status)
 
 
+@api_view(["POST"])
+def test_email(request):
+    """
+    Test email sending endpoint.
+    
+    POST body (optional):
+        - email: recipient email address (defaults to EMAIL_HOST_USER)
+    
+    Returns:
+        200 OK: Email sent successfully
+        400 Bad Request: Invalid request
+        500 Error: Email sending failed
+    """
+    from django.conf import settings
+    from django.core.mail import get_connection
+    from django.core.mail.message import EmailMessage
+    
+    # Get recipient
+    recipient = request.data.get("email") or getattr(settings, "EMAIL_HOST_USER", None)
+    if not recipient:
+        return Response({
+            "status": "error",
+            "message": "No recipient email specified and EMAIL_HOST_USER not configured"
+        }, status=400)
+    
+    try:
+        # Test SMTP connection
+        connection = get_connection(fail_silently=False)
+        connection.open()
+        
+        # Send test email
+        email = EmailMessage(
+            subject="Test Email from CampusHub",
+            body="This is a test email from CampusHub. If you received this, email delivery is working correctly!",
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@campushub.com"),
+            to=[recipient],
+        )
+        email.send(fail_silently=False)
+        
+        connection.close()
+        
+        return Response({
+            "status": "success",
+            "message": f"Test email sent successfully to {recipient}"
+        }, status=200)
+        
+    except Exception as e:
+        return Response({
+            "status": "error",
+            "message": f"Failed to send email: {str(e)}"
+        }, status=500)
+
+
 @api_view(["GET"])
 def maintenance_check(request):
     """
