@@ -563,16 +563,24 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # Cache configuration
+CACHE_REDIS_URL = config("REDIS_URL", default="").strip()
+CACHE_BACKEND_DEFAULT = (
+    "redis" if (ENVIRONMENT == "production" and CACHE_REDIS_URL) else "locmem"
+)
 CACHE_BACKEND = config(
     "CACHE_BACKEND",
-    default="redis" if ENVIRONMENT == "production" else "locmem",
+    default=CACHE_BACKEND_DEFAULT,
 ).strip().lower()
 
 if CACHE_BACKEND == "redis":
+    if not CACHE_REDIS_URL:
+        raise ImproperlyConfigured(
+            "CACHE_BACKEND=redis but REDIS_URL is not set."
+        )
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": config("REDIS_URL", default="redis://localhost:6379/1"),
+            "LOCATION": CACHE_REDIS_URL,
         }
     }
 elif CACHE_BACKEND == "locmem":
@@ -588,7 +596,11 @@ else:
     )
 
 # Channels Configuration (WebSockets)
-CHANNEL_LAYER_BACKEND = config("CHANNEL_LAYER_BACKEND", default="redis").strip().lower()
+CACHE_REDIS_URL = CACHE_REDIS_URL  # reuse above
+CHANNEL_LAYER_BACKEND_DEFAULT = "redis" if CACHE_REDIS_URL else "inmemory"
+CHANNEL_LAYER_BACKEND = config(
+    "CHANNEL_LAYER_BACKEND", default=CHANNEL_LAYER_BACKEND_DEFAULT
+).strip().lower()
 
 if CHANNEL_LAYER_BACKEND == "inmemory":
     CHANNEL_LAYERS = {
@@ -597,11 +609,15 @@ if CHANNEL_LAYER_BACKEND == "inmemory":
         }
     }
 else:
+    if not CACHE_REDIS_URL:
+        raise ImproperlyConfigured(
+            "CHANNEL_LAYER_BACKEND=redis but REDIS_URL is not set."
+        )
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [config("REDIS_URL", default="redis://localhost:6379/1")],
+                "hosts": [CACHE_REDIS_URL],
             },
         }
     }
