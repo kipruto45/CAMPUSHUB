@@ -572,11 +572,11 @@ CACHE_BACKEND = config(
     default=CACHE_BACKEND_DEFAULT,
 ).strip().lower()
 
+# If redis requested but no URL, fall back to locmem to avoid startup failures
+if CACHE_BACKEND == "redis" and not CACHE_REDIS_URL:
+    CACHE_BACKEND = "locmem"
+
 if CACHE_BACKEND == "redis":
-    if not CACHE_REDIS_URL:
-        raise ImproperlyConfigured(
-            "CACHE_BACKEND=redis but REDIS_URL is not set."
-        )
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -602,6 +602,10 @@ CHANNEL_LAYER_BACKEND = config(
     "CHANNEL_LAYER_BACKEND", default=CHANNEL_LAYER_BACKEND_DEFAULT
 ).strip().lower()
 
+# If redis requested but no URL, fall back to inmemory to avoid startup failures
+if CHANNEL_LAYER_BACKEND == "redis" and not CACHE_REDIS_URL:
+    CHANNEL_LAYER_BACKEND = "inmemory"
+
 if CHANNEL_LAYER_BACKEND == "inmemory":
     CHANNEL_LAYERS = {
         "default": {
@@ -609,10 +613,6 @@ if CHANNEL_LAYER_BACKEND == "inmemory":
         }
     }
 else:
-    if not CACHE_REDIS_URL:
-        raise ImproperlyConfigured(
-            "CHANNEL_LAYER_BACKEND=redis but REDIS_URL is not set."
-        )
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
