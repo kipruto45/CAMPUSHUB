@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to CampusHub</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f2fbf6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f9d58 0%, #34a853 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            display: inline-block;
+            background: #198754;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .feature {
+            flex: 1;
+            min-width: 150px;
+            padding: 15px;
+            background: #f3faf5;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #d8efe0;
+        }
+        .feature-icon {
+            font-size: 30px;
+            margin-bottom: 10px;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        .social-links {
+            margin: 15px 0;
+        }
+        .social-links a {
+            display: inline-block;
+            margin: 0 10px;
+            color: #198754;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 Welcome to CampusHub!</h1>
+        </div>
+        <div class="content">
+            <p>Hello <strong>{{ user.first_name }}</strong>,</p>
+            
+            <p>Welcome to <strong>CampusHub</strong> - your ultimate study resource platform! We're excited to have you join our community of learners.</p>
+            
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">📚</div>
+                    <h3>Access Resources</h3>
+                    <p>Browse thousands of study materials</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">⭐</div>
+                    <h3>Rate & Review</h3>
+                    <p>Help others find the best content</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📁</div>
+                    <h3>Personal Library</h3>
+                    <p>Save your favorite resources</p>
+                </div>
+            </div>
+            
+            <p>To get started, verify your email address by clicking the button below:</p>
+            
+            <center>
+                <a href="{{ verification_url }}" class="btn">Verify Email Address</a>
+            </center>
+            
+            <p>If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; font-size: 12px; color: #666;">{{ verification_url }}</p>
+            
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            
+            <h3>📌 Quick Start Guide</h3>
+            <ol>
+                <li><strong>Complete your profile</strong> - Add your course and year of study</li>
+                <li><strong>Explore resources</strong> - Search for materials in your courses</li>
+                <li><strong>Build your library</strong> - Save important files for offline access</li>
+                <li><strong>Stay updated</strong> - Check announcements from your instructors</li>
+            </ol>
+            
+            <p>If you have any questions, feel free to reply to this email or visit our help center.</p>
+            
+            <p>Happy learning!</p>
+            <p><strong>The CampusHub Team</strong></p>
+        </div>
+        <div class="footer">
+            <div class="social-links">
+                <a href="#">Website</a> | 
+                <a href="#">Help Center</a> | 
+                <a href="#">Contact Us</a>
+            </div>
+            <p>© 2024 CampusHub. All rights reserved.</p>
+            <p style="font-size: 12px;">
+                You're receiving this email because you created an account on CampusHub.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,165 @@
+# =============================================================================
+# CampusHub - Production Docker Compose
+# =============================================================================
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: camphub_db_prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-campushub}
+      POSTGRES_USER: ${POSTGRES_USER:-campushub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-campushub}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: camphub_redis_prod
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_web_prod
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile - config.wsgi:application"
+    volumes:
+      - static_volume:/app/static
+      - media_volume:/app/media
+    env_file:
+      - .env
+    environment:
+      - DEBUG=False
+      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-False}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-campushub}:${POSTGRES_PASSWORD:-change-this-password}@db:5432/${POSTGRES_DB:-campushub}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_LOG_FILE=/app/logs/django.log
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Worker
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_celery_prod
+    restart: unless-stopped
+    command: celery -A config worker -l info
+    volumes:
+      - media_volume:/app/media
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-campushub}:${POSTGRES_PASSWORD:-change-this-password}@db:5432/${POSTGRES_DB:-campushub}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_LOG_FILE=/app/logs/django.log
+    depends_on:
+      - web
+      - redis
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_celery_beat_prod
+    restart: unless-stopped
+    command: celery -A config beat -l info
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-campushub}:${POSTGRES_PASSWORD:-change-this-password}@db:5432/${POSTGRES_DB:-campushub}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_LOG_FILE=/app/logs/django.log
+    depends_on:
+      - web
+      - redis
+
+  # Daphne ASGI Server (for WebSockets)
+  daphne:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_daphne_prod
+    restart: unless-stopped
+    command: daphne -b 0.0.0.0 -p 8001 config.asgi:application
+    volumes:
+      - media_volume:/app/media
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-campushub}:${POSTGRES_PASSWORD:-change-this-password}@db:5432/${POSTGRES_DB:-campushub}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_LOG_FILE=/app/logs/django.log
+    depends_on:
+      - web
+      - redis
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: camphub_nginx_prod
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - media_volume:/app/media:ro
+      - static_volume:/app/static:ro
+    depends_on:
+      - web
+      - daphne
+
+  # Caddy HTTPS Reverse Proxy (terminates TLS)
+  caddy:
+    image: caddy:2-alpine
+    container_name: camphub_caddy_prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nginx
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_volume:
+  static_volume:
+  caddy_data:
+  caddy_config:
+
+networks:
+  default:
+    name: camphub_network_prod
