@@ -4,14 +4,16 @@ Management command to update faculties via API endpoint.
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication, TokenAuthentication
 from apps.faculties.models import Faculty, Department, Course
 import json
 
 
 @csrf_exempt
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def update_faculties_api(request):
     """
