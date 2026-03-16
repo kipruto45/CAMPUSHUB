@@ -1,0 +1,160 @@
+{
+  "faculties": [
+    {
+      "name": "Faculty of Computing and Information Technology",
+      "code": "CIT",
+      "description": "This faculty clusters all programs focused on computer science, IT, and data.",
+      "departments": [
+        {
+          "name": "Department of Computer Science",
+          "code": "DCS",
+          "courses": [
+            {"name": "BSc. Computer Science", "code": "BCS", "years": 4},
+            {"name": "Diploma in Computer Science", "code": "DCS", "years": 3}
+          ]
+        },
+        {
+          "name": "Department of Information Technology",
+          "code": "DIT",
+          "courses": [
+            {"name": "Bachelor of Information Technology", "code": "BIT", "years": 4},
+            {"name": "Bachelor of Business Information Technology", "code": "BBIT", "years": 4},
+            {"name": "Diploma in Information Technology", "code": "DIT", "years": 3},
+            {"name": "Diploma in Cyber Security", "code": "DCY", "years": 3}
+          ]
+        },
+        {
+          "name": "Department of Software Engineering",
+          "code": "DSE",
+          "courses": [
+            {"name": "Bachelor of Software Engineering", "code": "BSEN", "years": 4}
+          ]
+        },
+        {
+          "name": "Department of Data Science",
+          "code": "DDS",
+          "courses": [
+            {"name": "Bachelor of Data Science", "code": "BDAT", "years": 4},
+            {"name": "BSc. Applied Statistics", "code": "BSCAS", "years": 4},
+            {"name": "BSc. Statistics and Information Technology", "code": "BSIT", "years": 4}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Faculty of Business and Economics",
+      "code": "FBE",
+      "description": "This faculty includes all the core business, finance, and economics programs.",
+      "departments": [
+        {
+          "name": "Department of Accounting and Finance",
+          "code": "DAF",
+          "courses": [
+            {"name": "Bachelor of Applied Statistics and Economics", "code": "BASE", "years": 4},
+            {"name": "Bachelor of Accounting", "code": "BSACC", "years": 4},
+            {"name": "Bachelor of Banking and Finance", "code": "BBFI", "years": 4},
+            {"name": "Bachelor of Science in Finance", "code": "BSCFIN", "years": 4},
+            {"name": "Bachelor of Commerce - Accounting", "code": "BCOM-A", "years": 4},
+            {"name": "Bachelor of Commerce - Finance", "code": "BCOM-F", "years": 4},
+            {"name": "Bachelor of Commerce - Banking", "code": "BCOM-B", "years": 4},
+            {"name": "Diploma in Accounting and Finance", "code": "DAF", "years": 3},
+            {"name": "Diploma in Banking and Finance", "code": "DBF", "years": 3}
+          ]
+        },
+        {
+          "name": "Department of Management and Entrepreneurship",
+          "code": "DME",
+          "courses": [
+            {"name": "Bachelor of Science in Entrepreneurship", "code": "BENT", "years": 4},
+            {"name": "Bachelor of Business Management", "code": "BBM", "years": 4},
+            {"name": "Bachelor of Human Resource Management", "code": "BHRM", "years": 4},
+            {"name": "Bachelor of Commerce - Marketing", "code": "BCOM-M", "years": 4},
+            {"name": "Diploma in Business Administration", "code": "DBA", "years": 3},
+            {"name": "Diploma in Human Resource Management", "code": "DHRM", "years": 3},
+            {"name": "Diploma in Business Management", "code": "DBM", "years": 3},
+            {"name": "Certificate in Business Management", "code": "CBM", "years": 2}
+          ]
+        },
+        {
+          "name": "Department of Economics",
+          "code": "DEC",
+          "courses": [
+            {"name": "Bachelor of Science in Economics", "code": "BECO", "years": 4}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Faculty of Social Sciences and Development Studies",
+      "code": "FSS",
+      "description": "This faculty includes programs related to community, society, and development.",
+      "departments": [
+        {
+          "name": "Department of Community Development and Environmental Studies",
+          "code": "DCD",
+          "courses": [
+            {"name": "Bachelor of Co-operatives and Community Development", "code": "BCCD", "years": 4},
+            {"name": "Bachelor of Disaster Risk Management", "code": "BDRM", "years": 4},
+            {"name": "Bachelor of Environmental Studies", "code": "BBEST", "years": 4},
+            {"name": "Bachelor of Environmental Economics and Policy", "code": "BEEP", "years": 4},
+            {"name": "Bachelor of Agricultural Economics", "code": "BAGE", "years": 4},
+            {"name": "Bachelor of Community Development", "code": "BCD", "years": 4}
+          ]
+        },
+        {
+          "name": "Department of Procurement and Supply Chain Management",
+          "code": "DPS",
+          "courses": [
+            {"name": "Bachelor of Purchasing and Supplies Management", "code": "BPSM", "years": 4},
+            {"name": "Diploma in Supply Chain Management", "code": "DSCM", "years": 3}
+          ]
+        },
+        {
+          "name": "Department of Co-operative and Business Studies",
+          "code": "DCB",
+          "courses": [
+            {"name": "Bachelor of Co-operative Business", "code": "BCOB", "years": 4}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Faculty of Hospitality and Tourism Management",
+      "code": "FHTM",
+      "description": "This faculty contains all programs related to the service and tourism industry.",
+      "departments": [
+        {
+          "name": "Department of Hospitality Management",
+          "code": "DHM",
+          "courses": [
+            {"name": "Bachelor of Catering and Hospitality Management", "code": "BCHM", "years": 4},
+            {"name": "Diploma in Catering and Accommodation Management", "code": "DCAM", "years": 3},
+            {"name": "Diploma in Catering and Hotel Management", "code": "DCHM", "years": 3}
+          ]
+        },
+        {
+          "name": "Department of Tourism and Travel Management",
+          "code": "DTM",
+          "courses": [
+            {"name": "Bachelor of Tourism Management", "code": "BTM", "years": 4},
+            {"name": "Diploma in Tour and Travel Management", "code": "DTM", "years": 3}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Faculty of Arts and Social Communication",
+      "code": "FASC",
+      "description": "This faculty contains programs related to media, communication, and arts.",
+      "departments": [
+        {
+          "name": "Department of Media and Public Relations",
+          "code": "DMPR",
+          "courses": [
+            {"name": "Bachelor of Arts in Public Relations and Advertising", "code": "BPRA", "years": 4}
+          ]
+        }
+      ]
+    }
+  ]
+}
