@@ -48,6 +48,9 @@ debug.log.root
 media/
 staticfiles/
 
+# Build artifacts
+*.apk
+
 # Node / Expo / React Native
 mobile/
 mobile/node_modules/
