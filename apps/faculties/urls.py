@@ -7,6 +7,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (DepartmentListView, DepartmentViewSet, FacultyListView,
                     FacultyViewSet, SeedCoursesView)
+from .management_commands import update_faculties_api
 
 app_name = "faculties"
 
@@ -22,5 +23,6 @@ urlpatterns = [
         name="department-public-list",
     ),
     path("seed-courses/", SeedCoursesView.as_view(), name="seed-courses"),
+    path("update/", update_faculties_api, name="update-faculties"),
     path("", include(router.urls)),
 ]
