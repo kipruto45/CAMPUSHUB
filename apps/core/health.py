@@ -5,7 +5,8 @@ Health check endpoint for monitoring.
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 
@@ -196,6 +197,7 @@ def get_client_ip(request):
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def test_cloudinary(request):
     """
     Test Cloudinary upload endpoint.
