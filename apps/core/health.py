@@ -210,7 +210,6 @@ def test_cloudinary(request):
         500 Error: Cloudinary test failed
     """
     from django.conf import settings
-    import base64
     
     enabled = getattr(settings, 'CLOUDINARY_ENABLED', False)
     if not enabled:
@@ -229,34 +228,16 @@ def test_cloudinary(request):
         }, status=500)
     
     try:
-        from cloudinary.uploader import upload
-        from cloudinary.uploader import destroy as cloudinary_delete
+        from cloudinary.api import ping
         
-        # Create a minimal 1x1 transparent PNG
-        png_data = base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        )
-        
-        # Upload a test image
-        result = upload(
-            png_data,
-            public_id="campushub_health_test",
-            folder="campushub/tests",
-            resource_type="image"
-        )
-        
-        # Clean up the test image
-        cloudinary_delete("campushub/tests/campushub_health_test", resource_type="image")
+        # Test connection to Cloudinary
+        result = ping()
         
         return Response({
             "status": "success",
             "message": f"Cloudinary is working. Cloud: {cloud_name}",
-            "result": {
-                "public_id": result.get('public_id'),
-                "url": result.get('url'),
-                "secure_url": result.get('secure_url')
-            }
-        }, status=200)
+            "result": result
+        })
         
     except Exception as e:
         return Response({
