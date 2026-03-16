@@ -1,0 +1,14 @@
+[run]
+source =
+    apps.api.urls
+    apps.core.middleware
+
+[report]
+fail_under = 100
+show_missing = True
+skip_covered = False
+precision = 2
+
+[html]
+directory = htmlcov
+title = CampusHub Backend Coverage (Strict 100%)

@@ -1,0 +1,193 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: campushub_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/campushub_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key
+          DEBUG: 'False'
+        run: |
+          python manage.py migrate --noinput
+      
+      - name: Run tests
+        env:
+          ENVIRONMENT: testing
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/campushub_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key
+          DEBUG: 'False'
+        run: |
+          pytest --cov=apps --cov-report=xml --cov-report=term
+
+      - name: Mobile backend readiness checks
+        env:
+          ENVIRONMENT: testing
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/campushub_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key
+          DEBUG: 'False'
+        run: |
+          make mobile-verify PYTHON=python
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: |
+          npm ci --prefix mobile
+
+      - name: Mobile screen smoke tests
+        run: |
+          npm run test:screens --prefix mobile
+
+      - name: Production readiness checks
+        env:
+          ENVIRONMENT: production
+          SECRET_KEY: ci-prod-check-secret-key-very-strong-1234567890ABCD
+          ALLOWED_HOSTS: api.campushub.test,campushub.test
+          CSRF_TRUSTED_ORIGINS: https://api.campushub.test,https://campushub.test
+          DATABASE_URL: sqlite:////tmp/campushub_ci_prod.sqlite3
+          REDIS_URL: redis://localhost:6379/0
+          DEBUG: 'False'
+        run: |
+          python manage.py check --deploy
+          python manage.py migrate --noinput
+          python manage.py production_readiness_check --allow-sqlite
+          python manage.py migrate --check
+          python manage.py spectacular --validate --file /tmp/openapi_ci_prod.yaml
+          python manage.py collectstatic --noinput --dry-run
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          flags: unittests
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install flake8 black isort
+      
+      - name: Run flake8
+        run: |
+          flake8 apps --max-line-length=120 --ignore=E501,W503
+      
+      - name: Check black formatting
+        run: |
+          black --check apps --exclude=migrations
+      
+      - name: Check isort
+        run: |
+          isort --check-only apps --exclude=migrations
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install safety bandit
+      
+      - name: Run safety check
+        run: |
+          safety check --requirements-path=requirements.txt
+      
+      - name: Run bandit
+        run: |
+          bandit -r apps -x apps/migrations
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, lint, security]
+    if: github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build Docker image
+        run: |
+          docker build -t campushub:${{ github.sha }} .
+
+      - name: Validate production compose file
+        run: |
+          docker compose -f docker-compose.prod.yml config >/tmp/docker-prod-config.txt
+      
+      - name: Test Docker image
+        run: |
+          docker run -d --name campushub-test -p 8000:8000 campushub:${{ github.sha }}
+          sleep 10
+          docker logs campushub-test
+          docker stop campushub-test

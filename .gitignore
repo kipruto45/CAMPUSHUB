@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local git metadata
+.git-writable/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+mobile/.env
+mobile/.env.*
+!mobile/.env.example
+docs/login_credentials.txt
+mobile/android/app/google-services.json
+mobile/ios/GoogleService-Info.plist
+firebase-service-account.json
+keystores/
+
+# Databases
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.bak*
+dev_db.sqlite3
+test_db.sqlite3
+celerybeat-schedule
+
+# Logs and coverage
+logs/
+*.log
+htmlcov/
+.coverage
+.coverage.*
+debug.log.root
+
+# Django / collected assets
+media/
+staticfiles/
+
+# Node / Expo / React Native
+mobile/
+mobile/node_modules/
+mobile/.expo/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/dist/
+mobile/web-build/
+.gradle-cache/
+.jdk17/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

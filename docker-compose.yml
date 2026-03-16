@@ -1,0 +1,151 @@
+# =============================================================================
+# CampusHub - University Learning Resources Platform
+# Docker Compose Configuration
+# =============================================================================
+
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: camphub_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-camphub}
+      POSTGRES_USER: ${POSTGRES_USER:-camphub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-camphub123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-camphub}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: camphub_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${DOCKER_TARGET:-development}
+    container_name: camphub_web
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-camphub}:${POSTGRES_PASSWORD:-camphub123}@db:5432/${POSTGRES_DB:-camphub}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-dev-key-change-in-production}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Worker
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_celery
+    command: celery -A config worker -l info
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-camphub}:${POSTGRES_PASSWORD:-camphub123}@db:5432/${POSTGRES_DB:-camphub}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-dev-key-change-in-production}
+    depends_on:
+      - web
+      - redis
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_celery_beat
+    command: celery -A config beat -l info
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-camphub}:${POSTGRES_PASSWORD:-camphub123}@db:5432/${POSTGRES_DB:-camphub}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-dev-key-change-in-production}
+    depends_on:
+      - web
+      - redis
+
+  # Daphne ASGI Server (for WebSockets)
+  daphne:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camphub_daphne
+    command: daphne -b 0.0.0.0 -p 8001 config.asgi:application
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-camphub}:${POSTGRES_PASSWORD:-camphub123}@db:5432/${POSTGRES_DB:-camphub}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-dev-key-change-in-production}
+    depends_on:
+      - web
+      - redis
+
+  # Nginx Reverse Proxy (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: camphub_nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - media_volume:/app/media:ro
+      - static_volume:/app/static:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_volume:
+  static_volume:
+
+# Networks
+networks:
+  default:
+    name: camphub_network

@@ -1,0 +1,16 @@
+[Unit]
+Description=CampusHub Gunicorn Service
+After=network.target
+
+[Service]
+User=kipruto
+Group=kipruto
+WorkingDirectory=/home/kipruto/Desktop/CampusHub
+EnvironmentFile=/home/kipruto/Desktop/CampusHub/.env
+Environment=ENVIRONMENT=production
+ExecStart=/home/kipruto/Desktop/CampusHub/venv/bin/gunicorn config.wsgi:application -c /home/kipruto/Desktop/CampusHub/config/gunicorn.conf.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1 @@
+"""Comments app package."""

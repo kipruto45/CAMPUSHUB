@@ -1,0 +1,9 @@
+{
+    # Optional: set your email for Let's Encrypt notifications
+    # email you@example.com
+}
+
+my-cham-a.app, www.my-cham-a.app {
+    encode gzip
+    reverse_proxy nginx:80
+}
