@@ -563,62 +563,46 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # Cache configuration
+CACHE_BACKEND = config("CACHE_BACKEND", default="locmem").strip().lower()
 CACHE_REDIS_URL = config("REDIS_URL", default="").strip()
-CACHE_BACKEND_DEFAULT = (
-    "redis" if (ENVIRONMENT == "production" and CACHE_REDIS_URL) else "locmem"
-)
-CACHE_BACKEND = config(
-    "CACHE_BACKEND",
-    default=CACHE_BACKEND_DEFAULT,
-).strip().lower()
 
-# If redis requested but no URL, fall back to locmem to avoid startup failures
-if CACHE_BACKEND == "redis" and not CACHE_REDIS_URL:
-    CACHE_BACKEND = "locmem"
-
-if CACHE_BACKEND == "redis":
+if CACHE_BACKEND == "redis" and CACHE_REDIS_URL:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": CACHE_REDIS_URL,
         }
     }
-elif CACHE_BACKEND == "locmem":
+else:
+    # Force safe fallback
+    CACHE_BACKEND = "locmem"
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": f"campushub-{ENVIRONMENT}-cache",
         }
     }
-else:
-    raise ImproperlyConfigured(
-        "CACHE_BACKEND must be either 'redis' or 'locmem'."
-    )
 
 # Channels Configuration (WebSockets)
-CACHE_REDIS_URL = CACHE_REDIS_URL  # reuse above
-CHANNEL_LAYER_BACKEND_DEFAULT = "redis" if CACHE_REDIS_URL else "inmemory"
 CHANNEL_LAYER_BACKEND = config(
-    "CHANNEL_LAYER_BACKEND", default=CHANNEL_LAYER_BACKEND_DEFAULT
+    "CHANNEL_LAYER_BACKEND", default="inmemory"
 ).strip().lower()
 
-# If redis requested but no URL, fall back to inmemory to avoid startup failures
-if CHANNEL_LAYER_BACKEND == "redis" and not CACHE_REDIS_URL:
-    CHANNEL_LAYER_BACKEND = "inmemory"
-
-if CHANNEL_LAYER_BACKEND == "inmemory":
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels.layers.InMemoryChannelLayer",
-        }
-    }
-else:
+if CHANNEL_LAYER_BACKEND == "redis" and CACHE_REDIS_URL:
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
                 "hosts": [CACHE_REDIS_URL],
             },
+        }
+    }
+else:
+    # Force safe fallback
+    CHANNEL_LAYER_BACKEND = "inmemory"
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
         }
     }
 
