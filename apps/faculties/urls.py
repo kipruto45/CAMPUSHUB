@@ -6,7 +6,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (DepartmentListView, DepartmentViewSet, FacultyListView,
-                    FacultyViewSet)
+                    FacultyViewSet, SeedCoursesView)
 
 app_name = "faculties"
 
@@ -21,5 +21,6 @@ urlpatterns = [
         DepartmentListView.as_view(),
         name="department-public-list",
     ),
+    path("seed-courses/", SeedCoursesView.as_view(), name="seed-courses"),
     path("", include(router.urls)),
 ]
