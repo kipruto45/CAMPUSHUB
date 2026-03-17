@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
 from drf_spectacular.plumbing import build_basic_type
-from rest_framework import generics, status
+from rest_framework import generics, status, serializers
 from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -53,6 +53,39 @@ from apps.social.models import StudyGroup
 from apps.gamification.models import (
     Badge, UserBadge, UserPoints, UserStats, Achievement, Leaderboard
 )
+
+
+# =========================
+# Shared serializers
+# =========================
+
+class AdminBadgeListSerializer(serializers.ModelSerializer):
+    earned_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Badge
+        ref_name = "AdminBadgeListSerializer"
+        fields = [
+            'id', 'name', 'slug', 'description', 'icon', 'category',
+            'points_required', 'requirement_type', 'requirement_value',
+            'is_active', 'earned_count', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_earned_count(self, obj) -> int:
+        return UserBadge.objects.filter(badge=obj).count()
+
+
+class AdminBadgeDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Badge
+        ref_name = "AdminBadgeDetailSerializer"
+        fields = [
+            'id', 'name', 'slug', 'description', 'icon', 'category',
+            'points_required', 'requirement_type', 'requirement_value',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class AdminDashboardView(APIView):
@@ -940,25 +973,7 @@ class AdminBadgeListView(generics.ListCreateAPIView):
     queryset = Badge.objects.all()
 
     def get_serializer_class(self):
-        from rest_framework import serializers
-        
-        class BadgeSerializer(serializers.ModelSerializer):
-            earned_count = serializers.SerializerMethodField()
-            
-            class Meta:
-                model = Badge
-                fields = [
-                    'id', 'name', 'slug', 'description', 'icon', 'category',
-                    'points_required', 'requirement_type', 'requirement_value',
-                    'is_active', 'earned_count', 'created_at', 'updated_at'
-                ]
-                read_only_fields = ['id', 'created_at', 'updated_at']
-                ref_name = "AdminBadgeListSerializer"
-            
-            def get_earned_count(self, obj) -> int:
-                return UserBadge.objects.filter(badge=obj).count()
-        
-        return BadgeSerializer
+        return AdminBadgeListSerializer
 
 
 class AdminBadgeDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -968,20 +983,7 @@ class AdminBadgeDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Badge.objects.all()
 
     def get_serializer_class(self):
-        from rest_framework import serializers
-        
-        class BadgeSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = Badge
-                fields = [
-                    'id', 'name', 'slug', 'description', 'icon', 'category',
-                    'points_required', 'requirement_type', 'requirement_value',
-                    'is_active', 'created_at', 'updated_at'
-                ]
-                read_only_fields = ['id', 'created_at', 'updated_at']
-                ref_name = "AdminBadgeDetailSerializer"
-        
-        return BadgeSerializer
+        return AdminBadgeDetailSerializer
 
 
 class AdminBadgeEarnersView(APIView):
@@ -2093,16 +2095,15 @@ class DashboardWidgetsView(APIView):
         return Response({'widgets': widgets})
 
 
-@extend_schema(
-    methods=["GET"],
-    operation_id="admin_dashboard_layouts_list",
-    tags=["Admin Dashboard"]
-)
 class DashboardLayoutsView(APIView):
     """View for dashboard layouts."""
     
     permission_classes = [IsAuthenticated, IsAdmin]
     
+    @extend_schema(
+        operation_id="admin_dashboard_layouts_list",
+        tags=["Admin Dashboard"]
+    )
     def get(self, request):
         """Get predefined and custom dashboard layouts."""
         from apps.admin_management.dashboard_builder import DashboardBuilderService
@@ -2110,6 +2111,10 @@ class DashboardLayoutsView(APIView):
         layouts = DashboardBuilderService.get_default_layouts()
         return Response({'layouts': layouts})
 
+    @extend_schema(
+        operation_id="admin_dashboard_layouts_create",
+        tags=["Admin Dashboard"]
+    )
     def post(self, request):
         """Create a custom dashboard layout."""
         from apps.admin_management.dashboard_builder import DashboardBuilderService
@@ -2135,16 +2140,15 @@ class DashboardLayoutsView(APIView):
         })
 
 
-@extend_schema(
-    methods=["GET"],
-    operation_id="admin_dashboard_layouts_retrieve",
-    tags=["Admin Dashboard"]
-)
 class DashboardLayoutDetailView(APIView):
     """View for a specific dashboard layout."""
     
     permission_classes = [IsAuthenticated, IsAdmin]
     
+    @extend_schema(
+        operation_id="admin_dashboard_layouts_retrieve",
+        tags=["Admin Dashboard"]
+    )
     def get(self, request, layout_id):
         """Get a specific dashboard layout."""
         from apps.admin_management.dashboard_builder import DashboardBuilderService
