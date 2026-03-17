@@ -4,11 +4,12 @@ Views for resources app.
 
 from uuid import UUID
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.db.models import BooleanField, Count, Exists, IntegerField, OuterRef, Subquery, Value
-from django.http import Http404
+from django.http import Http404, HttpResponseRedirect
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, status, viewsets
@@ -701,6 +702,67 @@ class ResourceViewSet(viewsets.ModelViewSet):
             resources, many=True, context={"request": request}
         )
         return Response(serializer.data)
+
+
+class ResourceShareLandingView(APIView):
+    """
+    Public landing endpoint for shared resources.
+
+    GET /resources/{slug}/
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, slug):
+        try:
+            resource = Resource.objects.get(slug=slug, status="approved")
+        except Resource.DoesNotExist:
+            return Response(
+                {"valid": False, "message": "Invalid or unavailable resource link."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        accept = request.headers.get("Accept", "")
+        wants_html = "text/html" in accept or "*/*" in accept
+
+        frontend_base = (
+            str(getattr(settings, "FRONTEND_URL", "")).rstrip("/")
+            or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "")).rstrip("/")
+            or str(getattr(settings, "WEB_APP_URL", "")).rstrip("/")
+        )
+        deeplink_scheme = (
+            str(getattr(settings, "MOBILE_DEEPLINK_SCHEME", "campushub")).strip()
+            or "campushub"
+        )
+
+        deep_link = f"{deeplink_scheme}://resource/{resource.slug}"
+        web_url = f"{frontend_base}/resource/{resource.slug}" if frontend_base else ""
+
+        if wants_html:
+            target = web_url or deep_link
+            return HttpResponseRedirect(target)
+
+        return Response(
+            {
+                "valid": True,
+                "resource": {
+                    "id": str(resource.id),
+                    "slug": resource.slug,
+                    "title": resource.title,
+                    "course": getattr(resource.course, "name", None),
+                    "unit": getattr(resource.unit, "name", None),
+                    "resource_type": resource.get_resource_type_display()
+                    if hasattr(resource, "get_resource_type_display")
+                    else resource.resource_type,
+                    "is_public": getattr(resource, "is_public", True),
+                    "status": resource.status,
+                },
+                "web_url": web_url,
+                "deep_link": deep_link,
+                "message": "Valid resource link",
+            }
+        )
 
 
 class ResourceListView(generics.ListAPIView):

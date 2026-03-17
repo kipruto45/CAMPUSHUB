@@ -437,12 +437,13 @@ class ResourceShareService:
         return f"{self._get_share_base_url()}/resources/{target.slug}"
 
     def build_deep_link(self, resource: Resource | None = None) -> str:
-        """Build deep link URL placeholder for future app routing."""
+        """Build deep link URL used by the mobile app router."""
         target = resource or self.resource
         scheme = str(getattr(settings, "MOBILE_DEEPLINK_SCHEME", "campushub")).strip()
         if not scheme:
             scheme = "campushub"
-        return f"{scheme}://resources/{target.slug}"
+        # Mobile expects paths like campushub://resource/<slug>
+        return f"{scheme}://resource/{target.slug}"
 
     @staticmethod
     def _build_metadata_summary(resource: Resource) -> str:

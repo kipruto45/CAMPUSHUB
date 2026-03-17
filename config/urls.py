@@ -15,6 +15,7 @@ from graphene_django.views import GraphQLView
 from apps.api import deeplinks as deeplink_views
 from apps.library import views as library_views
 from apps.social import views as social_views
+from apps.resources import views as resource_views
 from config.schema_fallback import apply_schema_fallback
 
 # Keep OpenAPI generation resilient for legacy APIViews without serializer_class.
@@ -32,6 +33,11 @@ urlpatterns = [
         "groups/invite/<str:token>/",
         social_views.StudyGroupInviteLandingView.as_view(),
         name="study-group-invite-landing",
+    ),
+    path(
+        "resources/<slug:slug>/",
+        resource_views.ResourceShareLandingView.as_view(),
+        name="resource-share-landing",
     ),
     path(
         ".well-known/assetlinks.json",
