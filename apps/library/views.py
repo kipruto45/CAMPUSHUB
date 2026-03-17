@@ -335,7 +335,8 @@ class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return PersonalResource.objects.none()
-        return PersonalResource.objects.filter(user=self.request.user)
+        # Use all_objects to include soft-deleted items for delete operations
+        return PersonalResource.all_objects.filter(user=self.request.user)
 
     def get_serializer_class(self):
         if self.request.method in ["PUT", "PATCH"]:

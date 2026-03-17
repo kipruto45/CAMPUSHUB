@@ -20,8 +20,30 @@ def update_faculties_api(request):
     """
     API endpoint to update faculties, departments, and courses.
     POST request to /api/faculties/update/
+    
+    To delete all without recreating, send: {"delete_only": true}
     """
     try:
+        # Check if this is a delete-only request
+        if request.data.get('delete_only', False):
+            faculties_count = Faculty.objects.count()
+            departments_count = Department.objects.count()
+            courses_count = Course.objects.count()
+            
+            Course.objects.all().delete()
+            Department.objects.all().delete()
+            Faculty.objects.all().delete()
+            
+            return JsonResponse({
+                "status": "success",
+                "message": "All faculties, departments, and courses deleted successfully",
+                "data": {
+                    "deleted_faculties": faculties_count,
+                    "deleted_departments": departments_count,
+                    "deleted_courses": courses_count
+                }
+            })
+        
         # Clear existing data
         Course.objects.all().delete()
         Department.objects.all().delete()
@@ -202,6 +224,43 @@ def update_faculties_api(request):
                 "faculties": Faculty.objects.count(),
                 "departments": Department.objects.count(),
                 "courses": Course.objects.count()
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "message": str(e)
+        }, status=500)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def delete_all_faculties_api(request):
+    """
+    API endpoint to delete all faculties, departments, and courses.
+    POST request to /api/faculties/delete-all/
+    """
+    try:
+        # Count before deletion
+        faculties_count = Faculty.objects.count()
+        departments_count = Department.objects.count()
+        courses_count = Course.objects.count()
+        
+        # Delete all data
+        Course.objects.all().delete()
+        Department.objects.all().delete()
+        Faculty.objects.all().delete()
+        
+        return JsonResponse({
+            "status": "success",
+            "message": "All faculties, departments, and courses deleted successfully",
+            "data": {
+                "deleted_faculties": faculties_count,
+                "deleted_departments": departments_count,
+                "deleted_courses": courses_count
             }
         })
         
