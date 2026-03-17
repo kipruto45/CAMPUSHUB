@@ -188,4 +188,6 @@ urlpatterns = [
     path("bulk/resources/update/", views.BulkResourceUpdateView.as_view(), name="bulk-resource-update"),
     path("bulk/resources/delete/", views.BulkResourceDeleteView.as_view(), name="bulk-resource-delete"),
     path("bulk/moderation/", views.BulkModerationView.as_view(), name="bulk-moderation"),
+    path("bulk/resources/upload/", views.BulkResourceUploadView.as_view(), name="bulk-resource-upload"),
+    path("bulk/resources/upload-by-type/", views.BulkResourceByTypeView.as_view(), name="bulk-resource-upload-type"),
 ]

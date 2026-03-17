@@ -10,6 +10,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+from django.conf import settings
+from django.http import HttpResponseRedirect
 
 from .serializers import (
     StudyGroupCreateSerializer,
@@ -456,6 +458,25 @@ class StudyGroupInviteLandingView(APIView):
             token,
             user=request.user if request.user.is_authenticated else None
         )
+        accept = request.headers.get("Accept", "")
+        wants_html = "text/html" in accept or "*/*" in accept
+
+        frontend_base = (
+            str(getattr(settings, "FRONTEND_URL", "")).rstrip("/")
+            or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "")).rstrip("/")
+            or str(getattr(settings, "WEB_APP_URL", "")).rstrip("/")
+        )
+        deeplink_scheme = str(
+            getattr(settings, "MOBILE_DEEPLINK_SCHEME", "campushub")
+        ).strip() or "campushub"
+
+        if wants_html:
+            if frontend_base:
+                target = f"{frontend_base}/group-invite?token={token}"
+            else:
+                target = f"{deeplink_scheme}://group-invite?token={token}"
+            return HttpResponseRedirect(target)
+
         return Response(validation)
 
 

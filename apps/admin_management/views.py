@@ -1,12 +1,14 @@
 """Views for admin management module."""
 
 import json
+import os
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
 from drf_spectacular.plumbing import build_basic_type
 from rest_framework import generics, status
+from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -2340,3 +2342,263 @@ class BulkModerationView(APIView):
         result = BulkOperationsService.bulk_moderate_resources(resource_ids, action, reason)
         
         return Response(result)
+
+
+class BulkResourceUploadView(APIView):
+    """
+    View for admin bulk resource upload.
+    
+    Allows admins to upload multiple resources at once, grouped by type.
+    Accepts a JSON payload with resource metadata and file URLs/content.
+    """
+    
+    permission_classes = [IsAuthenticated, IsAdmin]
+    
+    parser_classes = [MultiPartParser, JSONParser]
+    
+    RESOURCE_TYPE_CHOICES = [
+        "notes", "past_paper", "assignment", "book", "slides", "tutorial", "other"
+    ]
+    
+    def post(self, request):
+        """Bulk upload resources."""
+        from apps.resources.models import Resource
+        from django.utils.text import slugify
+        from uuid import uuid4
+        import os
+        
+        # Get common metadata from request
+        faculty_id = request.data.get('faculty_id')
+        department_id = request.data.get('department_id')
+        course_id = request.data.get('course_id')
+        unit_id = request.data.get('unit_id')
+        semester = request.data.get('semester', '')
+        year_of_study = request.data.get('year_of_study')
+        
+        # Get resource type - this determines which files to upload
+        resource_type = request.data.get('resource_type', 'notes')
+        if resource_type not in self.RESOURCE_TYPE_CHOICES:
+            return Response(
+                {'error': f'Invalid resource_type. Must be one of: {self.RESOURCE_TYPE_CHOICES}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get files - can be uploaded as multipart or as a list of URLs
+        files = request.FILES.getlist('files')
+        file_urls = request.data.get('file_urls', [])  # List of URLs to fetch
+        
+        # Get titles/descriptions - can be single or lists
+        titles = request.data.getlist('titles') or request.data.get('titles', '')
+        descriptions = request.data.getlist('descriptions') or request.data.get('descriptions', '')
+        tags = request.data.get('tags', '')
+        
+        # If single title/description provided, apply to all
+        if isinstance(titles, str):
+            titles = [titles] * max(len(files), len(file_urls))
+        if isinstance(descriptions, str):
+            descriptions = [descriptions] * max(len(files), len(file_urls))
+        
+        # Validate at least one file source
+        if not files and not file_urls:
+            return Response(
+                {'error': 'No files provided. Send files as multipart or file_urls as JSON array.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Process uploaded files
+        resources_created = 0
+        errors = []
+        
+        # Handle multipart file uploads
+        for idx, uploaded_file in enumerate(files):
+            try:
+                title = titles[idx] if idx < len(titles) else f"{resource_type.title()} {idx + 1}"
+                description = descriptions[idx] if idx < len(descriptions) else ''
+                
+                # Generate unique slug
+                unique_id = str(uuid4())[:8]
+                slug = slugify(f"{title}-{unique_id}")
+                
+                # Create resource
+                resource = Resource.objects.create(
+                    title=title,
+                    slug=slug,
+                    description=description,
+                    resource_type=resource_type,
+                    file=uploaded_file,
+                    file_size=uploaded_file.size,
+                    file_type=uploaded_file.content_type,
+                    normalized_filename=uploaded_file.name,
+                    faculty_id=faculty_id if faculty_id else None,
+                    department_id=department_id if department_id else None,
+                    course_id=course_id if course_id else None,
+                    unit_id=unit_id if unit_id else None,
+                    semester=semester,
+                    year_of_study=int(year_of_study) if year_of_study else None,
+                    tags=tags,
+                    uploaded_by=request.user,
+                    status='approved',  # Admin uploads are auto-approved
+                )
+                
+                resources_created += 1
+                
+            except Exception as e:
+                errors.append({'file': uploaded_file.name, 'error': str(e)})
+        
+        # Handle file URLs (for resources already hosted elsewhere)
+        for idx, url in enumerate(file_urls):
+            try:
+                title = titles[idx + len(files)] if idx + len(files) < len(titles) else f"{resource_type.title()} from URL {idx + 1}"
+                description = descriptions[idx + len(files)] if idx + len(files) < len(descriptions) else ''
+                
+                # Generate unique slug
+                unique_id = str(uuid4())[:8]
+                slug = slugify(f"{title}-{unique_id}")
+                
+                # Create resource with external URL
+                resource = Resource.objects.create(
+                    title=title,
+                    slug=slug,
+                    description=description,
+                    resource_type=resource_type,
+                    file=url,  # Store URL as file field
+                    file_size=0,  # Unknown size for external URLs
+                    file_type='external',
+                    normalized_filename=url.split('/')[-1] if '/' in url else url,
+                    faculty_id=faculty_id if faculty_id else None,
+                    department_id=department_id if department_id else None,
+                    course_id=course_id if course_id else None,
+                    unit_id=unit_id if unit_id else None,
+                    semester=semester,
+                    year_of_study=int(year_of_study) if year_of_study else None,
+                    tags=tags,
+                    uploaded_by=request.user,
+                    status='approved',
+                )
+                
+                resources_created += 1
+                
+            except Exception as e:
+                errors.append({'url': url, 'error': str(e)})
+        
+        result = {
+            'status': 'success',
+            'message': f'Successfully uploaded {resources_created} resources',
+            'resource_type': resource_type,
+            'resources_created': resources_created,
+            'errors': errors if errors else None
+        }
+        
+        return Response(result, status=status.HTTP_201_CREATED if resources_created > 0 else status.HTTP_400_BAD_REQUEST)
+
+
+class BulkResourceByTypeView(APIView):
+    """
+    View for admin to upload resources by type.
+    
+    Accepts multiple files with a specified resource type.
+    Each file becomes a separate resource with the same type.
+    """
+    
+    permission_classes = [IsAuthenticated, IsAdmin]
+    
+    parser_classes = [MultiPartParser, JSONParser]
+    
+    def post(self, request):
+        """Bulk upload resources by type."""
+        from apps.resources.models import Resource
+        from django.utils.text import slugify
+        from uuid import uuid4
+        
+        # Validate resource type
+        resource_type = request.data.get('resource_type', 'notes')
+        valid_types = ['notes', 'past_paper', 'assignment', 'book', 'slides', 'tutorial', 'other']
+        
+        if resource_type not in valid_types:
+            return Response(
+                {'error': f'Invalid resource_type. Must be one of: {valid_types}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get common metadata
+        faculty_id = request.data.get('faculty_id')
+        department_id = request.data.get('department_id')
+        course_id = request.data.get('course_id')
+        unit_id = request.data.get('unit_id')
+        semester = request.data.get('semester', '')
+        year_of_study = request.data.get('year_of_study')
+        tags = request.data.get('tags', '')
+        description = request.data.get('description', '')
+        
+        # Get all uploaded files
+        files = request.FILES.getlist('files')
+        
+        if not files:
+            return Response(
+                {'error': 'No files provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get optional titles (one per file)
+        titles = request.data.getlist('titles')
+        
+        resources_created = 0
+        created_resources = []
+        errors = []
+        
+        for idx, uploaded_file in enumerate(files):
+            try:
+                # Use provided title or generate from filename
+                if idx < len(titles):
+                    title = titles[idx]
+                else:
+                    # Remove file extension and capitalize
+                    name_without_ext = os.path.splitext(uploaded_file.name)[0]
+                    title = name_without_ext.replace('_', ' ').replace('-', ' ').title()
+                
+                # Generate unique slug
+                unique_id = str(uuid4())[:8]
+                slug = slugify(f"{title}-{unique_id}")
+                
+                # Determine file type
+                content_type = uploaded_file.content_type or 'application/octet-stream'
+                
+                # Create resource
+                resource = Resource.objects.create(
+                    title=title,
+                    slug=slug,
+                    description=description,
+                    resource_type=resource_type,
+                    file=uploaded_file,
+                    file_size=uploaded_file.size,
+                    file_type=content_type,
+                    normalized_filename=uploaded_file.name,
+                    faculty_id=faculty_id if faculty_id else None,
+                    department_id=department_id if department_id else None,
+                    course_id=course_id if course_id else None,
+                    unit_id=unit_id if unit_id else None,
+                    semester=semester,
+                    year_of_study=int(year_of_study) if year_of_study else None,
+                    tags=tags,
+                    uploaded_by=request.user,
+                    status='approved',
+                )
+                
+                resources_created += 1
+                created_resources.append({
+                    'id': str(resource.id),
+                    'title': resource.title,
+                    'file': request.build_absolute_uri(resource.file.url) if resource.file else None
+                })
+                
+            except Exception as e:
+                errors.append({'file': uploaded_file.name, 'error': str(e)})
+        
+        return Response({
+            'status': 'success',
+            'message': f'Successfully uploaded {resources_created} {resource_type} resources',
+            'resource_type': resource_type,
+            'resources_created': resources_created,
+            'resources': created_resources,
+            'errors': errors if errors else None
+        }, status=status.HTTP_201_CREATED if resources_created > 0 else status.HTTP_400_BAD_REQUEST)
