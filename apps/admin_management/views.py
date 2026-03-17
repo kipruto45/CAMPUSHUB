@@ -953,8 +953,9 @@ class AdminBadgeListView(generics.ListCreateAPIView):
                     'is_active', 'earned_count', 'created_at', 'updated_at'
                 ]
                 read_only_fields = ['id', 'created_at', 'updated_at']
+                ref_name = "AdminBadgeListSerializer"
             
-            def get_earned_count(self, obj):
+            def get_earned_count(self, obj) -> int:
                 return UserBadge.objects.filter(badge=obj).count()
         
         return BadgeSerializer
@@ -978,6 +979,7 @@ class AdminBadgeDetailView(generics.RetrieveUpdateDestroyAPIView):
                     'is_active', 'created_at', 'updated_at'
                 ]
                 read_only_fields = ['id', 'created_at', 'updated_at']
+                ref_name = "AdminBadgeDetailSerializer"
         
         return BadgeSerializer
 
@@ -1296,16 +1298,15 @@ class AdminAwardPointsView(APIView):
 # EMAIL CAMPAIGN MANAGEMENT VIEWS
 # ===========================================
 
-@extend_schema(
-    methods=["GET"],
-    operation_id="admin_email_campaigns_list",
-    tags=["Admin Email Campaigns"]
-)
 class AdminEmailCampaignListView(APIView):
     """List all email campaigns."""
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        operation_id="admin_email_campaigns_list",
+        tags=["Admin Email Campaigns"],
+    )
     def get(self, request):
         from django.db.models import Q
         from apps.core.models import EmailCampaign
@@ -1455,16 +1456,15 @@ class AdminEmailCampaignCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-@extend_schema(
-    methods=["GET"],
-    operation_id="admin_email_campaigns_retrieve",
-    tags=["Admin Email Campaigns"]
-)
 class AdminEmailCampaignDetailView(APIView):
     """Get details of an email campaign."""
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        operation_id="admin_email_campaigns_retrieve",
+        tags=["Admin Email Campaigns"],
+    )
     def get(self, request, campaign_id):
         from apps.core.models import EmailCampaign
         
