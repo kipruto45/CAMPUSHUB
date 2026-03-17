@@ -1,0 +1,99 @@
+department,code,name,years
+BE,BBF,Bachelor of Banking and Finance,4
+BE,BBM,Bachelor of Business Management,4
+BE,BCHM,Bachelor of Catering and Hospitality Management,4
+BE,BCOM,Bachelor of Commerce,4
+BE,BECO,Bachelor of Science in Economics,4
+BE,BEP,Bachelor of Entrepreneurship,4
+BE,BHRM,Bachelor of Human Resource Management,4
+BE,BMIT,"Bachelor of Science in Marketing, Innovation and Technology",4
+BE,BPRA,Bachelor of Public Relations and Advertising,4
+BE,BPSM,Bachelor of Purchasing and Supplies Management,4
+BE,BSA,Bachelor of Science in Accountancy,4
+BE,BSc.Fin,Bachelor of Science in Finance,4
+BE,BTM,Bachelor of Tourism and Travel Management,4
+BE,CBM,Certificate in Business Management,1
+BE,CPS,Certificate in Purchasing and Supplies Management,1
+BE,DAF,Diploma in Accounting and Finance,2
+BE,DBA,Diploma in Business Administration,2
+BE,DBF,Diploma in Banking and Finance,2
+BE,DBM,Diploma in Business Management,2
+BE,DCAM,Diploma in Housekeeping Management,2
+BE,DCHM,Diploma in Catering and Hotel Management,2
+BE,DHRM,Diploma in Human Resource Management,2
+BE,DPM,Diploma in Project Management,2
+BE,DPSM,Diploma in Purchasing and Supplies Management,2
+BE,DTM,Diploma in Tourism Management,2
+BE,MBA,Master of Business Administration,2
+BE,MSC-FIN,Master of Science in Finance,2
+BE,PHD-BA,Doctor of Philosophy in Business Administration,3
+CCD,BAEM,Bachelor of Agricultural Economics and Marketing,4
+CCD,BCCD,Bachelor of Co-operative and Community Development,4
+CCD,BCD,Bachelor of Community Development,4
+CCD,BCOB,Bachelor of Co-operative Business,4
+CCD,BDS,Bachelor of Development Studies,4
+CCD,BSc.AM,Bachelor of Science in Agribusiness Management,4
+CCD,DCD,Diploma in Community Development,2
+CCD,DCM,Diploma in Co-operative Management,2
+CCD,DSW,Diploma in Social Work and Community Development,2
+CCD,MCD,Master of Community Development,2
+CCD,MCM,Master of Co-operative Management,2
+CCD,PHD-CB,Doctor of Philosophy in Co-operative Business,3
+CS,BBIT,Bachelor of Business Information Technology,4
+CS,BCTT,Bachelor of Computer Technology,4
+CS,BIT,Bachelor of Science in Information Technology,4
+CS,BNCS,Bachelor of Science in Network Engineering and Cyber Security,4
+CS,BSSE,Bachelor of Science in Software Engineering,4
+CS,DCP,Diploma in Computer Programming,2
+CS,DCS,Diploma in Computer Science,2
+CS,DCY,Diploma in Cyber Security,2
+CS,DIT,Diploma in Information Technology,2
+DAF,BBFI,Bachelor of Banking and Finance,4
+DAF,BSACC,Bachelor of Science in Accounting,4
+DAF,BSCFIN,Bachelor of Science in Finance,4
+DASM,BASD,Bachelor of Arts in Social Development,4
+DASM,BSAS,Bachelor of Science in Applied Statistics,4
+DASM,BSCAS,Bachelor of Science in Actuarial Science,4
+DBAM,BABM,Bachelor of Arts in Business Management,4
+DBAM,BAGE,Bachelor of Agribusiness,4
+DBAM,BASE,Bachelor of Agricultural Science and Entrepreneurship,4
+DBAM,BBEST,Bachelor of Business and Enterprise Management,4
+DBAM,BBM,Bachelor of Business Management,4
+DBAM,BPSM,Bachelor of Purchasing and Supply Management,4
+DBAM,BTM,Bachelor of Tourism Management,4
+DCB,BCOB,Bachelor of Commerce,4
+DCB,BCOM,Bachelor of Commerce (Online),4
+DCMT,BCCD,Bachelor of Creative and Cultural Development,4
+DCMT,BCD,Bachelor of Communication and Development,4
+DCMT,BPRA,Bachelor of Public Relations and Advertising,4
+DCN,BNCS,Bachelor of Networks and Computer Security,4
+DCS,BCS,Bachelor of Computer Science,4
+DDSA,BDAT,Bachelor of Data Science and Analytics,4
+DECO,BECO,Bachelor of Economics,4
+DEI,BEEP,Bachelor of Economics and Economic Policy,4
+DEI,BENT,Bachelor of Economics and International Trade,4
+DES,BELSI,Bachelor of Environmental Leadership and Sustainability,4
+DES,BSEN,Bachelor of Science in Environmental Science,4
+DES,BSF,Bachelor of Science in Forestry,4
+DHRP,BHRM,Bachelor of Human Resource Management,4
+DIT,BBIT,Bachelor of Business Information Technology,4
+DIT,BIT,Bachelor of Information Technology,4
+DIT,BMIT,Bachelor of Management of Information Technology,4
+DIT,BSIT,Bachelor of Science in Information Technology,4
+DLGS,BLIS,Bachelor of Library and Information Science,4
+DPBS,BBIO,Bachelor of Biology,4
+DPBS,BCHM,Bachelor of Chemistry,4
+DRCD,BDRM,Bachelor of Digital Recreation and Media,4
+DRCD,BDVS,Bachelor of Digital Video Production,4
+ESD,BDRM,Bachelor of Science in Disaster Risk Management and Sustainable Development,4
+ESD,BEEP,Bachelor of Science in Environmental Economics and Policy,4
+ESD,BELSI,"Bachelor of Science in Environment, Lands and Sustainable Infrastructure",4
+ESD,BSET,Bachelor of Science in Environmental Science and Technology,4
+MDS,BASD,Bachelor of Science in Applied Statistics and Data Science,4
+MDS,BASE,Bachelor of Science in Applied Statistics and Economics,4
+MDS,BBIO,Bachelor of Science in Bioinformatics,4
+MDS,BDAT,Bachelor of Science in Data Science,4
+MDS,BSAS,Bachelor of Science in Actuarial Science,4
+MDS,BSCAS,Bachelor of Science in Applied Statistics,4
+MDS,BSIT,Bachelor of Statistics and Information Technology,4
+MDS,MSC-DS,Master of Science in Data Science,2

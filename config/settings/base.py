@@ -426,6 +426,12 @@ CLOUDINARY_CLOUD_NAME = config("CLOUDINARY_CLOUD_NAME", default="")
 CLOUDINARY_API_KEY = config("CLOUDINARY_API_KEY", default="")
 CLOUDINARY_API_SECRET = config("CLOUDINARY_API_SECRET", default="")
 
+# Force local storage for now (Cloudinary disabled)
+CLOUDINARY_ENABLED = False
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"
+
 # Firebase Cloud Messaging (FCM) Configuration
 FCM_ENABLED = config(
     "FCM_ENABLED", default="false", cast=lambda x: x.lower() in ("true", "1", "yes")
@@ -488,19 +494,13 @@ init_sentry()
 _cloudinary_credentials_present = bool(
     CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET
 )
-CLOUDINARY_ENABLED = config(
-    "CLOUDINARY_ENABLED",
-    default=str(_cloudinary_credentials_present and not DEBUG),
-    cast=bool,
-)
+# Force disable Cloudinary - use local file storage
+CLOUDINARY_ENABLED = False
 
-if CLOUDINARY_ENABLED and _cloudinary_credentials_present:
-    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
-    CLOUDINARY_STORAGE = {
-        "CLOUD_NAME": CLOUDINARY_CLOUD_NAME,
-        "API_KEY": CLOUDINARY_API_KEY,
-        "API_SECRET": CLOUDINARY_API_SECRET,
-    }
+# Local file storage (default)
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"
 
 # Email Configuration
 EMAIL_BACKEND = config(
