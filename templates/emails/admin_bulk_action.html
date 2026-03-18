@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Action Completed</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f2fbf6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f9d58 0%, #34a853 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            display: inline-block;
+            background: #198754;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .stats-box {
+            background: #e9f8ef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+        .stat-success {
+            color: #198754;
+            font-weight: bold;
+        }
+        .stat-failed {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Bulk Action Completed</h1>
+        </div>
+        <div class="content">
+            <p>A bulk action has been completed on <strong>{{ site_name }}</strong>.</p>
+            
+            <div class="stats-box">
+                <h3>Action: {{ action }}</h3>
+                <div class="stat-row">
+                    <span>Total Processed:</span>
+                    <span>{{ count }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Successful:</span>
+                    <span class="stat-success">{{ success_count }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Failed:</span>
+                    <span class="stat-failed">{{ failed_count }}</span>
+                </div>
+            </div>
+            
+            <center>
+                <a href="{{ moderation_url }}" class="btn">View Details</a>
+            </center>
+            
+            <p>Please review the results and take any necessary follow-up actions.</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p style="font-size: 12px;">
+                This is an automated notification from {{ site_name }}.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

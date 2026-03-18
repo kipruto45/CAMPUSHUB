@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Report Submitted</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #fdf2f2;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            display: inline-block;
+            background: #dc3545;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚠️ New Report Submitted</h1>
+        </div>
+        <div class="content">
+            <p>A new report has been submitted on <strong>{{ site_name }}</strong> and requires your attention.</p>
+            
+            <div class="info-box">
+                <strong>Report Details:</strong>
+                <p>Type: {{ report.get_reason_type_display }}</p>
+                <p>Description: {{ report.description|truncatewords:30 }}</p>
+                <p>Submitted: {{ report.created_at }}</p>
+            </div>
+            
+            <center>
+                <a href="{{ report_url }}" class="btn">View Report</a>
+            </center>
+            
+            <p>Please review this report and take appropriate action.</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p style="font-size: 12px;">
+                This is an automated notification from {{ site_name }}.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

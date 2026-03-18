@@ -84,9 +84,9 @@ class FCMService:
             if not service_account_path:
                 # Try default locations
                 possible_paths = [
-                    os.path.join(os.path.dirname(__file__), "..", "..", "mobile", "campushub-80677-4cb885a13c2d.json"),
-                    os.path.join(os.getcwd(), "mobile", "campushub-80677-4cb885a13c2d.json"),
-                    "mobile/campushub-80677-4cb885a13c2d.json",
+                    os.path.join(os.getcwd(), "firebase-service-account.json"),
+                    os.path.join(os.path.dirname(__file__), "..", "..", "firebase-service-account.json"),
+                    "firebase-service-account.json",
                 ]
                 for path in possible_paths:
                     if os.path.exists(path):

@@ -14,6 +14,20 @@ from django.utils.html import strip_tags
 logger = logging.getLogger(__name__)
 
 
+def get_frontend_base_url() -> str:
+    """
+    Get the frontend base URL from settings.
+    Falls back to multiple settings for compatibility.
+    """
+    return (
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or getattr(settings, "RESOURCE_SHARE_BASE_URL", "")
+        or getattr(settings, "WEB_APP_URL", "")
+        or "https://my-cham-a.app"  # Default fallback
+    ).rstrip("/")
+
+
 class EmailService:
     """
     Service for sending emails with templates.
@@ -127,21 +141,26 @@ class UserEmailService:
     """
 
     @staticmethod
-    def send_welcome_email(user) -> bool:
+    def send_welcome_email(user, verification_token=None) -> bool:
         """
         Send welcome email to new user.
 
         Args:
             user: User instance
+            verification_token: Optional verification token
 
         Returns:
             True if email was sent
         """
+        frontend_url = get_frontend_base_url()
+        verification_url = f"{frontend_url}/verify-email/{verification_token}" if verification_token else f"{frontend_url}/login"
+
         return EmailService.send_template_email(
             template_name="welcome",
             context={
                 "user": user,
                 "site_name": settings.SITE_NAME,
+                "verification_url": verification_url,
             },
             subject=f"Welcome to {settings.SITE_NAME}!",
             recipient_list=[user.email],
@@ -159,8 +178,8 @@ class UserEmailService:
         Returns:
             True if email was sent
         """
-        # Build reset URL - in production, this would be the actual frontend URL
-        reset_url = f"https://campushub.com/password-reset/{reset_token}"
+        frontend_url = get_frontend_base_url()
+        reset_url = f"{frontend_url}/password-reset/{reset_token}"
 
         return EmailService.send_template_email(
             template_name="password_reset",
@@ -206,7 +225,8 @@ class UserEmailService:
         Returns:
             True if email was sent
         """
-        verify_url = f"https://campushub.com/verify-email/{verification_token}"
+        frontend_url = get_frontend_base_url()
+        verify_url = f"{frontend_url}/verify-email/{verification_token}"
 
         return EmailService.send_template_email(
             template_name="email_verification",
@@ -237,7 +257,8 @@ class ResourceEmailService:
         Returns:
             True if email was sent
         """
-        resource_url = f"https://campushub.com/resources/{resource.id}"
+        frontend_url = get_frontend_base_url()
+        resource_url = f"{frontend_url}/resources/{resource.id}"
 
         return EmailService.send_template_email(
             template_name="resource_approved",
@@ -317,7 +338,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        profile_url = f"https://campushub.com/admin/accounts/user/{user.id}/change/"
+        frontend_url = get_frontend_base_url()
+        profile_url = f"{frontend_url}/admin/accounts/user/{user.id}/change/"
 
         return EmailService.send_template_email(
             template_name="admin_new_user",
@@ -342,7 +364,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        report_url = f"https://campushub.com/admin/reports/report/{report.id}/change/"
+        frontend_url = get_frontend_base_url()
+        report_url = f"{frontend_url}/admin/reports/report/{report.id}/change/"
 
         return EmailService.send_template_email(
             template_name="admin_new_report",
@@ -370,7 +393,8 @@ class AdminEmailService:
         if count == 0:
             return False
 
-        moderation_url = "https://campushub.com/admin/moderation/"
+        frontend_url = get_frontend_base_url()
+        moderation_url = f"{frontend_url}/admin/moderation/"
 
         return EmailService.send_template_email(
             template_name="admin_pending_resources",
@@ -395,7 +419,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        resource_url = f"https://campushub.com/resources/{resource.slug}/"
+        frontend_url = get_frontend_base_url()
+        resource_url = f"{frontend_url}/resources/{resource.slug}/"
 
         return EmailService.send_template_email(
             template_name="resource_approved",
@@ -422,7 +447,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        upload_url = "https://campushub.com/upload/"
+        frontend_url = get_frontend_base_url()
+        upload_url = f"{frontend_url}/upload/"
 
         return EmailService.send_template_email(
             template_name="resource_rejected",
@@ -452,7 +478,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        moderation_url = "https://campushub.com/admin/resources/"
+        frontend_url = get_frontend_base_url()
+        moderation_url = f"{frontend_url}/admin/resources/"
 
         return EmailService.send_template_email(
             template_name="admin_bulk_action",
@@ -481,7 +508,8 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        settings_url = "https://campushub.com/admin/settings/"
+        frontend_url = get_frontend_base_url()
+        settings_url = f"{frontend_url}/admin/settings/"
 
         return EmailService.send_template_email(
             template_name="admin_storage_warning",

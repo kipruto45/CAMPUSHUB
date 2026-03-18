@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New User Registration</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f2fbf6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f9d58 0%, #34a853 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            background: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            display: inline-block;
+            background: #198754;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .info-box {
+            background: #e9f8ef;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👤 New User Registration</h1>
+        </div>
+        <div class="content">
+            <p>A new user has registered on <strong>{{ site_name }}</strong>.</p>
+            
+            <div class="info-box">
+                <strong>User Details:</strong>
+                <p>Email: {{ user.email }}</p>
+                <p>Name: {{ user.get_full_name|default:user.username }}</p>
+                <p>Date Joined: {{ user.date_joined }}</p>
+            </div>
+            
+            <center>
+                <a href="{{ profile_url }}" class="btn">View User Profile</a>
+            </center>
+            
+            <p>Please review the user profile and take any necessary actions.</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p style="font-size: 12px;">
+                This is an automated notification from {{ site_name }}.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
