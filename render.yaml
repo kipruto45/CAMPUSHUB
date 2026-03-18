@@ -3,9 +3,9 @@ services:
     name: campushub-api
     env: python
     buildCommand: |
-      pip install -r requirements.txt
-      python manage.py migrate --noinput
-      python manage.py clear_all_data
+      pip install -r requirements.txt && \
+      python manage.py migrate --noinput && \
+      python manage.py clear_all_data && \
       python manage.py seed_all_data
     startCommand: gunicorn config.wsgi:application
     envVars:
