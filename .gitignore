@@ -44,6 +44,10 @@ htmlcov/
 .coverage.*
 debug.log.root
 
+# Debug scripts
+get_token.py
+seed_*.py
+
 # Django / collected assets
 media/
 staticfiles/
