@@ -25,5 +25,6 @@ urlpatterns = [
     path("seed-courses/", SeedCoursesView.as_view(), name="seed-courses"),
     path("update/", update_faculties_api, name="update-faculties"),
     path("delete-all/", delete_all_faculties_api, name="delete-all-faculties"),
+    path("delete/", delete_all_faculties_api, name="delete-faculties"),
     path("", include(router.urls)),
 ]

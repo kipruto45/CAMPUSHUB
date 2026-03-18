@@ -235,32 +235,38 @@ def update_faculties_api(request):
 
 
 @csrf_exempt
-@api_view(["POST"])
+@api_view(["POST", "GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
 def delete_all_faculties_api(request):
     """
-    API endpoint to delete all faculties, departments, and courses.
-    POST request to /api/faculties/delete-all/
+    API endpoint to delete all faculties, departments, courses, and units.
+    POST or GET request to /api/faculties/delete-all/ or /api/faculties/delete/
     """
     try:
+        from apps.faculties.models import Faculty, Department
+        from apps.courses.models import Course, Unit
+        
         # Count before deletion
+        units_count = Unit.objects.count()
+        courses_count = Course.objects.count()
         faculties_count = Faculty.objects.count()
         departments_count = Department.objects.count()
-        courses_count = Course.objects.count()
         
-        # Delete all data
+        # Delete all data in correct order (units first, then courses, then departments, then faculties)
+        Unit.objects.all().delete()
         Course.objects.all().delete()
         Department.objects.all().delete()
         Faculty.objects.all().delete()
         
         return JsonResponse({
             "status": "success",
-            "message": "All faculties, departments, and courses deleted successfully",
+            "message": "All faculties, departments, courses, and units deleted successfully",
             "data": {
-                "deleted_faculties": faculties_count,
+                "deleted_units": units_count,
+                "deleted_courses": courses_count,
                 "deleted_departments": departments_count,
-                "deleted_courses": courses_count
+                "deleted_faculties": faculties_count
             }
         })
         
