@@ -15,3 +15,9 @@ services:
         generateValue: true
       - key: JWT_SECRET_KEY
         generateValue: true
+      - key: FRONTEND_BASE_URL
+        value: https://my-cham-a.app
+      - key: FRONTEND_URL
+        value: https://my-cham-a.app
+      - key: RESOURCE_SHARE_BASE_URL
+        value: https://my-cham-a.app
