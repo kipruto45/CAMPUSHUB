@@ -16,6 +16,8 @@ router.register(r"faculties", FacultyViewSet, basename="faculty")
 router.register(r"departments", DepartmentViewSet, basename="department")
 
 urlpatterns = [
+    path("delete-all/", delete_all_faculties_api, name="delete-all-faculties"),
+    path("delete/", delete_all_faculties_api, name="delete-faculties"),
     path("faculties/public/", FacultyListView.as_view(), name="faculty-public-list"),
     path(
         "departments/public/",
