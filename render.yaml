@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: campushub-api
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py migrate --noinput
+      python manage.py clear_all_data
+      python manage.py seed_all_data
+    startCommand: gunicorn config.wsgi:application
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://campus_db_ztct_user:CN7ifpu0z9JLe461pLxPacnpV9yirSl3@dpg-d6rqio1aae7s73cu5v0g-a/campus_db_ztct
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
