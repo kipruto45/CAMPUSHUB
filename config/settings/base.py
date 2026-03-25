@@ -214,12 +214,31 @@ def _database_from_url(database_url: str) -> dict:
 
 
 def _resolve_default_database(database_url: str) -> dict:
-    default_sqlite_url = "sqlite:////home/kipruto/Desktop/CampusHub/db.sqlite3"
     if database_url:
         return _database_from_url(database_url)
-    # Use the same sqlite file for both development and production when DATABASE_URL
-    # is not explicitly provided.
-    return _database_from_url(default_sqlite_url)
+
+    sqlite_path_env = config("SQLITE_PATH", default="").strip()
+    if sqlite_path_env in {":memory:", "/:memory:"}:
+        sqlite_name = ":memory:"
+    elif sqlite_path_env:
+        sqlite_path = Path(sqlite_path_env).expanduser()
+        if not sqlite_path.is_absolute():
+            sqlite_path = BASE_DIR / sqlite_path
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        sqlite_name = str(sqlite_path)
+    elif ENVIRONMENT == "production":
+        sqlite_path = Path("/tmp/campushub.sqlite3")
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        sqlite_name = str(sqlite_path)
+    else:
+        sqlite_path = BASE_DIR / "db.sqlite3"
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        sqlite_name = str(sqlite_path)
+
+    return {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": sqlite_name,
+    }
 
 
 DATABASE_URL = config("DATABASE_URL", default="").strip()
