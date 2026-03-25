@@ -210,3 +210,160 @@ class MobileStatsSerializer(serializers.Serializer):
     storage_limit = serializers.IntegerField()
     points = serializers.IntegerField()
     badges_count = serializers.IntegerField()
+
+
+class GestureConfigurationSerializer(serializers.Serializer):
+    """Serializer for gesture configuration."""
+
+    id = serializers.UUIDField(read_only=True)
+    gestures_enabled = serializers.BooleanField()
+    swipe_sensitivity = serializers.IntegerField()
+    double_tap_sensitivity = serializers.IntegerField()
+    long_press_duration = serializers.IntegerField()
+    haptic_feedback = serializers.BooleanField()
+    gesture_animations = serializers.BooleanField()
+    edge_gestures_enabled = serializers.BooleanField()
+    edge_zone_width = serializers.IntegerField()
+    custom_gestures_enabled = serializers.BooleanField()
+    max_custom_gestures = serializers.IntegerField()
+    gesture_timeout = serializers.IntegerField()
+    require_auth_for_favorites = serializers.BooleanField()
+    require_auth_for_bookmarks = serializers.BooleanField()
+    require_auth_for_share = serializers.BooleanField()
+
+
+class SwipeActionSerializer(serializers.Serializer):
+    """Serializer for swipe actions."""
+
+    id = serializers.UUIDField(read_only=True)
+    action_type = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField(required=False)
+    icon = serializers.CharField(required=False)
+    is_system = serializers.BooleanField(read_only=True)
+    is_active = serializers.BooleanField()
+    requires_auth = serializers.BooleanField()
+    action_params = serializers.DictField(required=False)
+    available_on = serializers.ListField(required=False)
+    priority = serializers.IntegerField()
+
+
+class UserSwipeMappingSerializer(serializers.Serializer):
+    """Serializer for user swipe mappings."""
+
+    id = serializers.UUIDField(read_only=True)
+    gesture_type = serializers.CharField()
+    direction = serializers.ChoiceField(
+        choices=["left", "right", "up", "down", "any"]
+    )
+    action_id = serializers.UUIDField()
+    is_enabled = serializers.BooleanField()
+    screen = serializers.CharField(required=False, allow_blank=True)
+    min_swipe_distance = serializers.IntegerField()
+    max_swipe_time = serializers.IntegerField()
+
+
+class CustomGestureSerializer(serializers.Serializer):
+    """Serializer for custom gestures."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(required=False, allow_blank=True)
+    gesture_pattern = serializers.ListField()
+    min_match_score = serializers.IntegerField(min_value=0, max_value=100)
+    action_id = serializers.UUIDField(required=False, allow_null=True)
+    custom_action_name = serializers.CharField(required=False, allow_blank=True)
+    custom_action_params = serializers.DictField(required=False)
+    is_active = serializers.BooleanField()
+    usage_count = serializers.IntegerField(read_only=True)
+    last_used = serializers.DateTimeField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
+class GestureAnalyticsSerializer(serializers.Serializer):
+    """Serializer for gesture analytics."""
+
+    id = serializers.UUIDField(read_only=True)
+    gesture_type = serializers.CharField()
+    action_triggered_id = serializers.UUIDField(required=False, allow_null=True)
+    recognized = serializers.BooleanField()
+    gesture_duration = serializers.IntegerField(required=False, allow_null=True)
+    gesture_distance = serializers.IntegerField(required=False, allow_null=True)
+    screen = serializers.CharField()
+    action_completed = serializers.BooleanField()
+    error_message = serializers.CharField(required=False, allow_blank=True)
+    session_id = serializers.CharField(required=False, allow_blank=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
+# =============================================================================
+# Haptic Feedback Serializers
+# =============================================================================
+
+class HapticFeedbackConfigurationSerializer(serializers.Serializer):
+    """Serializer for haptic feedback configuration."""
+
+    id = serializers.UUIDField(read_only=True)
+    haptics_enabled = serializers.BooleanField()
+    default_intensity = serializers.CharField()
+    haptic_for_gestures = serializers.BooleanField()
+    haptic_for_notifications = serializers.BooleanField()
+    haptic_for_button_presses = serializers.BooleanField()
+    haptic_for_selection = serializers.BooleanField()
+    haptic_for_success = serializers.BooleanField()
+    haptic_for_error = serializers.BooleanField()
+    haptic_for_warning = serializers.BooleanField()
+    master_volume = serializers.IntegerField(min_value=0, max_value=100)
+    swipe_intensity = serializers.CharField()
+    tap_intensity = serializers.CharField()
+    long_press_intensity = serializers.CharField()
+
+
+class HapticPatternSerializer(serializers.Serializer):
+    """Serializer for haptic patterns."""
+
+    id = serializers.UUIDField(read_only=True)
+    pattern_type = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True)
+    pattern_data = serializers.ListField()
+    recommended_intensity = serializers.CharField()
+    is_system = serializers.BooleanField(read_only=True)
+    is_active = serializers.BooleanField()
+    category = serializers.CharField()
+
+
+class CustomHapticPatternSerializer(serializers.Serializer):
+    """Serializer for custom haptic patterns."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(required=False, allow_blank=True)
+    pattern_data = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.IntegerField()
+        )
+    )
+    intensity = serializers.CharField()
+    is_active = serializers.BooleanField()
+    usage_count = serializers.IntegerField(read_only=True)
+    last_used = serializers.DateTimeField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
+class HapticActionMappingSerializer(serializers.Serializer):
+    """Serializer for haptic action mappings."""
+
+    id = serializers.UUIDField(read_only=True)
+    action = serializers.CharField(max_length=100)
+    pattern_id = serializers.UUIDField(required=False, allow_null=True)
+    custom_pattern_id = serializers.UUIDField(required=False, allow_null=True)
+    intensity_override = serializers.CharField(required=False, allow_blank=True)
+    is_enabled = serializers.BooleanField()
+
+
+class HapticPatternListSerializer(serializers.Serializer):
+    """Serializer for listing available haptic patterns."""
+
+    patterns = HapticPatternSerializer(many=True)
+    categories = serializers.ListField()

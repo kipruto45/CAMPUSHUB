@@ -87,6 +87,7 @@ class SearchService:
     def apply_filters(queryset, params: dict | None):
         """Apply all supported search filters."""
         params = params or {}
+        queryset = queryset.filter(is_deleted=False)
         resource_types = SearchService._split_csv(params.get("resource_type"))
         if resource_types:
             queryset = queryset.filter(resource_type__in=resource_types)

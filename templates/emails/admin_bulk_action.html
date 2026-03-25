@@ -101,13 +101,13 @@
             </div>
             
             <center>
-                <a href="{{ moderation_url }}" class="btn">View Details</a>
+                <a href="{{ moderation_url|default:'#' }}" class="btn">View Details</a>
             </center>
             
             <p>Please review the results and take any necessary follow-up actions.</p>
         </div>
         <div class="footer">
-            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p>© 2026 {{ site_name }}. All rights reserved.</p>
             <p style="font-size: 12px;">
                 This is an automated notification from {{ site_name }}.
             </p>

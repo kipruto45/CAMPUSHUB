@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Expiring</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .warning-icon { font-size: 48px; margin-bottom: 20px; }
+        .days-remaining { font-size: 32px; font-weight: bold; color: #ed8936; margin: 20px 0; }
+        .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="warning-icon">⏰</div>
+        <h1>Subscription Expiring Soon</h1>
+    </div>
+    <div class="content">
+        <p>Hello {{ user.first_name|default:user.username }},</p>
+        <p>Your {{ plan_name }} subscription is about to expire.</p>
+        <div class="days-remaining">{{ days_remaining }} day{{ days_remaining|pluralize }} remaining</div>
+        <p>Renew now to continue enjoying uninterrupted premium features:</p>
+        <ul>
+            <li>Increased storage capacity</li>
+            <li>Unlimited downloads</li>
+            <li>No advertisements</li>
+            <li>Priority support</li>
+        </ul>
+        <a href="{{ renewal_url|default:'#' }}" class="button">Renew Now</a>
+        <p>If you have any questions, contact us anytime.</p>
+        <div class="footer"><p>© 2026 CampusHub. All rights reserved.</p></div>
+    </div>
+</body>
+</html>

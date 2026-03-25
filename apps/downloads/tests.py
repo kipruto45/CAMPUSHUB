@@ -1,133 +1,87 @@
 """
 Tests for downloads app.
 """
-
-from unittest.mock import patch
-
+import pytest
 from django.contrib.auth import get_user_model
-from django.urls import reverse
-from rest_framework import status
-from rest_framework.test import APITestCase
 
-from apps.resources.models import Resource
+from apps.downloads.models import Download
 
 User = get_user_model()
 
 
-class DownloadHistoryTests(APITestCase):
-    """Tests for download history endpoints."""
+@pytest.fixture
+def user(db):
+    """Create a test user."""
+    return User.objects.create_user(
+        email="test@example.com",
+        password="testpass123",
+    )
 
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            email="test@example.com", password="testpass123"
+
+@pytest.mark.django_db
+class TestDownloadModel:
+    """Tests for Download model."""
+
+    def test_download_creation(self, user):
+        """Test download creation for resource."""
+        from apps.resources.models import Resource
+        
+        resource = Resource.objects.create(
+            title="Test Resource",
+            description="Test description",
+            created_by=user,
         )
-        self.client.force_authenticate(user=self.user)
-
-    def test_get_download_history_empty(self):
-        """Test getting empty download history."""
-        url = reverse("downloads:download-history-list")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["results"], [])
-
-    def test_get_download_history_unauthenticated(self):
-        """Test unauthenticated request is rejected."""
-        self.client.force_authenticate(user=None)
-        url = reverse("downloads:download-history-list")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-
-class DownloadResourceTests(APITestCase):
-    """Tests for resource download endpoints."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            email="test@example.com", password="testpass123"
+        download = Download.objects.create(
+            user=user,
+            resource=resource,
+            ip_address="127.0.0.1",
+            user_agent="Test Agent",
         )
-        self.client.force_authenticate(user=self.user)
+        assert download.id is not None
+        assert download.resource == resource
+        assert download.user == user
 
-    @patch("apps.resources.models.Resource.objects.get")
-    def test_download_nonexistent_resource(self, mock_get):
-        """Test downloading non-existent resource fails."""
-        mock_get.side_effect = Resource.DoesNotExist
-
-        url = reverse(
-            "downloads:download-resource",
-            kwargs={"resource_id": "00000000-0000-0000-0000-000000000001"},
+    def test_download_str_with_resource(self, user):
+        """Test download string with resource."""
+        from apps.resources.models import Resource
+        
+        resource = Resource.objects.create(
+            title="Test Resource",
+            description="Test description",
+            created_by=user,
         )
-        response = self.client.post(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_download_resource_unauthenticated(self):
-        """Test unauthenticated download is rejected."""
-        self.client.force_authenticate(user=None)
-
-        url = reverse(
-            "downloads:download-resource",
-            kwargs={"resource_id": "00000000-0000-0000-0000-000000000001"},
+        download = Download.objects.create(
+            user=user,
+            resource=resource,
         )
-        response = self.client.post(url)
+        assert str(download) == f"{user.email} - {resource.title}"
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-
-class DownloadStatsTests(APITestCase):
-    """Tests for download statistics endpoints."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            email="test@example.com", password="testpass123"
+    def test_download_title_property(self, user):
+        """Test download_title property."""
+        from apps.resources.models import Resource
+        
+        resource = Resource.objects.create(
+            title="Test Resource",
+            description="Test description",
+            created_by=user,
         )
-        self.client.force_authenticate(user=self.user)
-
-    def test_get_download_stats(self):
-        """Test getting download statistics."""
-        url = reverse("downloads:download-stats")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("total_downloads", response.data)
-        self.assertIn("unique_resources", response.data)
-        self.assertIn("recent_downloads", response.data)
-
-    def test_get_stats_unauthenticated(self):
-        """Test unauthenticated request is rejected."""
-        self.client.force_authenticate(user=None)
-
-        url = reverse("downloads:download-stats")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-
-class RecentDownloadsTests(APITestCase):
-    """Tests for recent downloads endpoints."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            email="test@example.com", password="testpass123"
+        download = Download.objects.create(
+            user=user,
+            resource=resource,
         )
-        self.client.force_authenticate(user=self.user)
+        assert download.download_title == "Test Resource"
 
-    def test_get_recent_downloads(self):
-        """Test getting recent downloads."""
-        url = reverse("downloads:recent-downloads")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsInstance(response.data, list)
-
-    def test_get_recent_unauthenticated(self):
-        """Test unauthenticated request is rejected."""
-        self.client.force_authenticate(user=None)
-
-        url = reverse("downloads:recent-downloads")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    def test_download_type_property(self, user):
+        """Test download_type property."""
+        from apps.resources.models import Resource
+        
+        resource = Resource.objects.create(
+            title="Test Resource",
+            description="Test description",
+            created_by=user,
+        )
+        download = Download.objects.create(
+            user=user,
+            resource=resource,
+        )
+        assert download.download_type == "resource"

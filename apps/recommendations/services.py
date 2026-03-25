@@ -211,6 +211,23 @@ def _tokenize_text(text: str) -> set[str]:
     return tokens
 
 
+def _embed_tokens(tokens: set[str], size: int = 32) -> list[float]:
+    """
+    Lightweight deterministic embedding: hash tokens into a fixed-size vector.
+    Avoids heavyweight ML deps while enabling semantic-ish similarity.
+    """
+    vec = [0.0] * size
+    for token in tokens:
+        h = abs(hash(token)) % size
+        vec[h] += 1.0
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b)) or 0.0
+
+
 def _resource_interest_tokens(resource: Resource) -> set[str]:
     """Build lexical token set representing a resource."""
     tokens = set(_resource_tags(resource))
@@ -223,6 +240,15 @@ def _resource_interest_tokens(resource: Resource) -> set[str]:
     if getattr(resource, "unit", None) and resource.unit.name:
         tokens.update(_tokenize_text(resource.unit.name))
     return tokens
+
+
+def semantic_similarity(resource: Resource, query_tokens: set[str]) -> float:
+    """
+    Compute cosine similarity between hashed embeddings of resource tokens and query tokens.
+    """
+    resource_vec = _embed_tokens(_resource_interest_tokens(resource))
+    query_vec = _embed_tokens(query_tokens)
+    return _cosine(resource_vec, query_vec)
 
 
 def _behavior_summary_from_profile(profile: dict) -> dict:

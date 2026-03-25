@@ -95,6 +95,11 @@ class AdminActivityLog(TimeStampedModel):
         ("user_suspended", "User Suspended"),
         ("user_activated", "User Activated"),
         ("user_role_updated", "User Role Updated"),
+        ("user_invitation_created", "User Invitation Created"),
+        ("user_invitation_sent", "User Invitation Sent"),
+        ("user_invitation_batch_created", "User Invitation Batch Created"),
+        ("user_invitation_revoked", "User Invitation Revoked"),
+        ("user_invitation_accepted", "User Invitation Accepted"),
         # Announcement actions
         ("announcement_published", "Announcement Published"),
         ("announcement_archived", "Announcement Archived"),
@@ -119,6 +124,8 @@ class AdminActivityLog(TimeStampedModel):
         ("course", "Course"),
         ("unit", "Unit"),
         ("system", "System"),
+        ("role_invitation", "Role Invitation"),
+        ("role_invitation_batch", "Role Invitation Batch"),
     ]
 
     admin = models.ForeignKey(
@@ -127,7 +134,7 @@ class AdminActivityLog(TimeStampedModel):
         related_name="admin_activity_logs",
     )
     action = models.CharField(max_length=50, choices=ACTION_CHOICES)
-    target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES)
+    target_type = models.CharField(max_length=30, choices=TARGET_TYPE_CHOICES)
     target_id = models.CharField(max_length=50)
     target_title = models.CharField(max_length=255, blank=True)
     metadata = models.JSONField(default=dict, blank=True)

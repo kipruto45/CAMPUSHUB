@@ -77,7 +77,7 @@
             <p>You can view your resource here:</p>
             
             <center>
-                <a href="{{ resource_url }}" class="btn">View Resource</a>
+                <a href="{{ resource_url|default:'#' }}" class="btn">View Resource</a>
             </center>
             
             <p>Thank you for contributing to our community!</p>
@@ -85,7 +85,7 @@
             <p>Best regards,<br><strong>The {{ site_name }} Team</strong></p>
         </div>
         <div class="footer">
-            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p>© 2026 {{ site_name }}. All rights reserved.</p>
         </div>
     </div>
 </body>

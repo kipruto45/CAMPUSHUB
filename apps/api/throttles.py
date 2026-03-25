@@ -56,7 +56,7 @@ class MobileAuthRateThrottle(SimpleRateThrottle):
 
     scope = "mobile_auth"
     cache_format = "throttle_auth_%(scope)s_%(ident)s"
-    rate = "500/hour"  # 500 requests per hour for authenticated users
+    rate = "200/hour"
 
     def get_cache_key(self, request, view):
         """Throttle authenticated mobile requests by user id (fallback IP)."""
@@ -216,8 +216,8 @@ class SustainedRateThrottle(SimpleRateThrottle):
 
 # Default throttle rates for mobile API
 MOBILE_THROTTLE_RATES = {
-    "mobile_anon": "60/minute",
-    "mobile_auth": "500/hour",
+    "mobile_anon": "30/minute",
+    "mobile_auth": "200/hour",
     "mobile_upload": "10/day",
     "mobile_download": "100/hour",
     "mobile_auth_attempt": "10/minute",

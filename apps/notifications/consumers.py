@@ -156,11 +156,18 @@ class NotificationConsumer(AsyncWebsocketConsumer):
         """Mark a notification as read."""
         from apps.notifications.models import Notification
 
-        deleted_count, _ = Notification.objects.filter(
+        notification = Notification.objects.filter(
             id=notification_id,
             recipient_id=getattr(self.user, "id", None),
-        ).delete()
-        return bool(deleted_count)
+        ).first()
+        if not notification:
+            return False
+
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read", "updated_at"])
+
+        return True
 
 
 class GlobalNotificationConsumer(AsyncWebsocketConsumer):

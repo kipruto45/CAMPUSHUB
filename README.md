@@ -31,6 +31,7 @@ A production-ready Django REST API backend for a modern University Learning Reso
 - **Smart Tags**: Auto-suggested tags for resources
 - **Trending Resources**: Based on views, downloads, and bookmarks
 - **Recommendations**: Personalized resource recommendations
+- **View-only downloads**: Student downloads/files open via system “Open with…” chooser (web falls back to browser); no edit/save flows on device.
 
 ## Tech Stack
 
@@ -118,6 +119,33 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your configuration
 ```
+
+## API Versioning
+- All REST endpoints are now under `/api/v1/…`. Legacy `/api/…` URLs remain temporarily but return `Deprecation: true` headers. See `docs/API_VERSIONING.md` for details and migration steps.
+- v2 namespace (`/api/v2/…`) exists as a placeholder and currently returns HTTP 501.
+- Legacy/v1 responses include `Link: <.../api/v2/>; rel="successor-version"` to guide clients forward.
+
+## PWA & Offline
+- The service worker lives at `/static/pwa/sw.js` with app-shell caching, background sync queue for offline POST requests, and API caching tuned for `/api/v1` (download responses also send `X-Download-Directory`).
+- Register it from the web client early in app startup, e.g.:
+  ```html
+  <script src="/static/pwa/register-sw.js" defer></script>
+  ```
+- Manifest is available at `/static/pwa/manifest.json` with scope `/`; offline fallback page is `/offline/`.
+
+## Email & Notifications
+- Set `FRONTEND_BASE_URL` and SMTP settings (`EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS/SSL`, `DEFAULT_FROM_EMAIL`) to ensure all verification/password/payment emails render clickable links.
+- Payment success/refund emails attach PDF receipts and include secure download links; SMS messages include the signed receipt URL.
+
+## Downloads (Mobile)
+- Configuration endpoint: `/api/v1/mobile/download-config/` returns `DOWNLOAD_DIRECTORY`, `DOWNLOAD_TO_APP_DIRECTORY`, `PREVENT_SYSTEM_DOWNLOADS`.
+- Download responses also return `X-Download-Directory` and `X-Prevent-System-Downloads` headers.
+
+## Trash / Restore
+- Resources support soft-delete (`is_deleted/deleted_at`). Admin can restore via the restore action/endpoint; non-admin views should use `Resource.objects` to exclude trashed items.
+
+## Bulk Upload (Admin)
+- Admin bulk upload accepts ZIPs, skips oversized/invalid file types, and reports success/warnings. Optional status/public flags are supported via form fields.
 
 5. Run migrations:
 ```bash

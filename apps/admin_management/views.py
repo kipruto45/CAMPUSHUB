@@ -2,23 +2,34 @@
 
 import json
 import os
+from datetime import timedelta
+
+from django.conf import settings
 from django.db.models import Count, Q
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
 from drf_spectacular.plumbing import build_basic_type
 from rest_framework import generics, status, serializers
 from rest_framework.parsers import MultiPartParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.accounts.models import User
-from apps.accounts.serializers import UserActivitySerializer
+from apps.accounts.serializers import UserActivitySerializer, UserSerializer
+from apps.admin_management.models import AdminInvitationRole, AdminRoleInvitation
 from apps.admin_management.permissions import IsAdmin
 from apps.admin_management.serializers import (
     AdminAnnouncementSerializer, AdminCourseSerializer,
     AdminDashboardSerializer, AdminDepartmentSerializer,
+    AdminInvitationBatchSerializer,
+    AdminRoleInvitationAcceptSerializer, AdminRoleInvitationCreateSerializer,
+    AdminRoleInvitationBulkCreateSerializer,
+    AdminRoleInvitationSerializer,
+    AdminInvitationRoleSerializer,
     AdminFacultySerializer, AdminReportResolveDismissSerializer,
     AdminReportSerializer, AdminReportUpdateSerializer,
     AdminResourceRejectSerializer, AdminResourceReviewSerializer,
@@ -31,13 +42,20 @@ from apps.admin_management.services import (announcement_lifecycle_action,
                                             delete_resource,
                                             get_academic_stats,
                                             get_admin_dashboard_data,
+                                            get_available_invitation_roles,
                                             get_moderation_queues,
                                             get_resource_management_stats,
                                             get_system_health,
                                             get_user_management_stats,
                                             admin_global_search,
+                                            accept_role_invitation,
+                                            build_role_invitation_client_url,
+                                            create_role_invitation_batch,
                                             log_admin_activity,
+                                            create_role_invitation,
+                                            revoke_role_invitation,
                                             review_resource,
+                                            validate_role_invitation_token,
                                             update_report_status,
                                             update_user_role,
                                             update_user_status)
@@ -49,9 +67,17 @@ from apps.reports.models import Report
 from apps.resources.models import Resource
 from apps.social.models import StudyGroup
 
-# Gamification imports
+# Gamification imports (aligned with current gamification models)
 from apps.gamification.models import (
-    Badge, UserBadge, UserPoints, UserStats, Achievement, Leaderboard
+    Achievement,
+    Badge,
+    UserBadge,
+    UserPoints,
+    UserStats,
+    PointTransaction,
+    PointAction,
+    PointCategory,
+    Leaderboard,
 )
 
 
@@ -241,6 +267,321 @@ class AdminUserRoleUpdateView(APIView):
             status.HTTP_200_OK if result["success"] else status.HTTP_400_BAD_REQUEST
         )
         return Response(result, status=response_status)
+
+
+class AdminUserImpersonateView(APIView):
+    """Generate a short-lived access token for admins to impersonate another user."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, user_id):
+        target = get_object_or_404(User, id=user_id)
+        if not can_manage_target_user(actor=request.user, target=target):
+            return Response(
+                {"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        token = AccessToken.for_user(target)
+        token["user_id"] = target.id
+        token.set_exp(from_time=None, lifetime=timedelta(minutes=30))
+        token["impersonated_by"] = request.user.id
+
+        return Response(
+            {
+                "access": str(token),
+                "token_type": "impersonation",
+                "expires_in": int(token.lifetime.total_seconds()),
+                "impersonated_user": {"id": target.id, "email": target.email},
+                "issued_by": request.user.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminRoleInvitationListCreateView(generics.ListCreateAPIView):
+    """List or create role-based invitations for admins."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        queryset = (
+            AdminRoleInvitation.objects.select_related(
+                "invited_by", "accepted_by", "revoked_by", "batch"
+            )
+            .prefetch_related("invitation_roles__role_definition")
+            .order_by("-created_at")
+        )
+
+        status_filter = str(self.request.query_params.get("status", "") or "").strip().lower()
+        if status_filter == "pending":
+            queryset = queryset.filter(
+                accepted_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+            )
+        elif status_filter == "accepted":
+            queryset = queryset.filter(accepted_at__isnull=False)
+        elif status_filter == "revoked":
+            queryset = queryset.filter(revoked_at__isnull=False)
+        elif status_filter == "expired":
+            queryset = queryset.filter(
+                accepted_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__lte=timezone.now(),
+            )
+
+        role = self.request.query_params.get("role")
+        if role:
+            queryset = queryset.filter(
+                Q(role__iexact=role)
+                | Q(invitation_roles__role_definition__code__iexact=role)
+            ).distinct()
+
+        batch_id = self.request.query_params.get("batch")
+        if batch_id:
+            queryset = queryset.filter(batch_id=batch_id)
+
+        search = str(self.request.query_params.get("search", "") or "").strip()
+        if search:
+            queryset = queryset.filter(email__icontains=search)
+
+        return queryset
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return AdminRoleInvitationCreateSerializer
+        return AdminRoleInvitationSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            invitation = create_role_invitation(
+                actor=request.user,
+                email=serializer.validated_data["email"],
+                role=serializer.validated_data.get("role"),
+                roles=serializer.validated_data["roles"],
+                note=serializer.validated_data.get("note", ""),
+                expires_in_days=serializer.validated_data.get("expires_in_days", 7),
+                metadata=serializer.validated_data.get("metadata"),
+                email_subject=serializer.validated_data.get("email_subject", ""),
+                email_body=serializer.validated_data.get("email_body", ""),
+                source=AdminRoleInvitation.InvitationSource.ADMIN,
+                request=request,
+            )
+        except (PermissionError, ValueError) as exc:
+            return Response(
+                {"roles": [str(exc)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        response_serializer = AdminRoleInvitationSerializer(
+            invitation,
+            context={"request": request},
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminInvitationRoleOptionsView(APIView):
+    """Return available invitation roles and their templates/presets."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        only_available = (
+            str(request.query_params.get("available_only", "") or "").strip().lower()
+            == "true"
+        )
+        role_entries = get_available_invitation_roles(actor=request.user)
+        role_definitions = [
+            entry["role_definition"]
+            for entry in role_entries
+            if not only_available or entry["can_invite"]
+        ]
+        serializer = AdminInvitationRoleSerializer(
+            role_definitions,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+
+class AdminRoleInvitationBulkCreateView(APIView):
+    """Create role invitations in bulk from a CSV upload."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    parser_classes = [MultiPartParser, JSONParser]
+
+    def post(self, request):
+        serializer = AdminRoleInvitationBulkCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = create_role_invitation_batch(
+            actor=request.user,
+            csv_file=serializer.validated_data.get("csv_file"),
+            csv_text=serializer.validated_data.get("csv_text", ""),
+            default_roles=serializer.validated_data.get("default_roles"),
+            default_note=serializer.validated_data.get("default_note", ""),
+            default_expires_in_days=serializer.validated_data.get(
+                "default_expires_in_days", 7
+            ),
+            request=request,
+        )
+        invitation_serializer = AdminRoleInvitationSerializer(
+            result["created_invitations"],
+            many=True,
+            context={"request": request},
+        )
+        batch_serializer = AdminInvitationBatchSerializer(
+            result["batch"],
+            context={"request": request},
+        )
+        return Response(
+            {
+                "batch": batch_serializer.data,
+                "summary": {
+                    "created": len(result["created_invitations"]),
+                    "failed": len(result["errors"]),
+                },
+                "errors": result["errors"],
+                "invitations": invitation_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminRoleInvitationRevokeView(APIView):
+    """Revoke a pending role invitation."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, invitation_id):
+        invitation = get_object_or_404(AdminRoleInvitation, id=invitation_id)
+        result = revoke_role_invitation(actor=request.user, invitation=invitation)
+        response_status = (
+            status.HTTP_200_OK if result["success"] else status.HTTP_400_BAD_REQUEST
+        )
+        return Response(result, status=response_status)
+
+
+class AdminRoleInvitationValidateView(APIView):
+    """Validate a role invitation token."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        validation = validate_role_invitation_token(
+            token=token,
+            user=request.user if request.user.is_authenticated else None,
+        )
+        status_code = status.HTTP_200_OK if validation.get("valid") else status.HTTP_404_NOT_FOUND
+        return Response(validation, status=status_code)
+
+
+class AdminRoleInvitationAcceptView(APIView):
+    """Accept a role invitation by creating or upgrading the invited account."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = AdminRoleInvitationAcceptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invitation = get_object_or_404(
+            AdminRoleInvitation.objects.select_related("invited_by", "accepted_by")
+            .prefetch_related("invitation_roles__role_definition"),
+            token=serializer.validated_data["token"],
+        )
+        result = accept_role_invitation(
+            invitation=invitation,
+            actor=request.user if request.user.is_authenticated else None,
+            full_name=serializer.validated_data.get("full_name", ""),
+            password=serializer.validated_data.get("password", ""),
+            registration_number=serializer.validated_data.get("registration_number", ""),
+            phone_number=serializer.validated_data.get("phone_number", ""),
+        )
+
+        if not result.get("success"):
+            if result.get("forbidden"):
+                return Response(result, status=status.HTTP_403_FORBIDDEN)
+            if result.get("requires_login"):
+                return Response(result, status=status.HTTP_409_CONFLICT)
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        invitation_serializer = AdminRoleInvitationSerializer(
+            result["invitation"],
+            context={"request": request},
+        )
+        response_payload = {
+            "message": result["message"],
+            "created_user": result["created_user"],
+            "role_changed": result["role_changed"],
+            "applied_roles": result.get("applied_roles", []),
+            "applied_permissions": result.get("applied_permissions", []),
+            "missing_permissions": result.get("missing_permissions", []),
+            "invitation": invitation_serializer.data,
+            "user": UserSerializer(result["user"], context={"request": request}).data,
+        }
+        if result.get("tokens"):
+            response_payload.update(result["tokens"])
+
+        return Response(
+            response_payload,
+            status=status.HTTP_201_CREATED if result["created_user"] else status.HTTP_200_OK,
+        )
+
+
+class AdminRoleInvitationLandingView(APIView):
+    """
+    Public landing endpoint for admin role invitations.
+
+    GET /role-invite/{token}/
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        validation = validate_role_invitation_token(
+            token=token,
+            user=request.user if request.user.is_authenticated else None,
+        )
+        accept = request.headers.get("Accept", "")
+        wants_html = "text/html" in accept or "*/*" in accept
+
+        frontend_base = (
+            str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+            or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "") or "").rstrip("/")
+            or str(getattr(settings, "WEB_APP_URL", "") or "").rstrip("/")
+        )
+        target = build_role_invitation_client_url(token)
+
+        if wants_html:
+            if validation.get("valid"):
+                if frontend_base or target:
+                    return HttpResponseRedirect(target)
+
+                html = f"""
+                <html><head><title>Role Invitation</title></head>
+                <body style='font-family: system-ui, -apple-system, sans-serif; padding: 32px; text-align: center;'>
+                    <h2>CampusHub Role Invitation</h2>
+                    <p>You have been invited as <strong>{validation.get("role", "").title()}</strong>.</p>
+                    <p>Use the CampusHub app to continue with this invitation.</p>
+                </body></html>
+                """
+                return HttpResponse(html, status=status.HTTP_200_OK)
+
+            html = """
+            <html><head><title>Invite not available</title></head>
+            <body style='font-family: system-ui, -apple-system, sans-serif; padding: 32px; text-align: center;'>
+                <h2>Invite not available</h2>
+                <p>This invitation link is invalid, expired, or revoked.</p>
+                <p>Ask an administrator to send you a fresh invitation.</p>
+            </body></html>
+            """
+            return HttpResponse(html, status=status.HTTP_404_NOT_FOUND)
+
+        status_code = status.HTTP_200_OK if validation.get("valid") else status.HTTP_404_NOT_FOUND
+        return Response(validation, status=status_code)
 
 
 class AdminResourceListView(generics.ListAPIView):
@@ -1019,11 +1360,15 @@ class AdminGamificationStatsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
-    def get(self, request):
+    def get(self, request, **kwargs):
         from django.db.models import Sum, Count
+        from datetime import timedelta
+        from apps.accounts.serializers import UserSummarySerializer
         
         # Total points across all users
-        total_points = UserStats.objects.aggregate(Sum('total_points'))['total_points__sum'] or 0
+        total_points = UserStats.objects.aggregate(
+            total=Sum('total_points')
+        )['total'] or 0
         
         # Total badges earned
         total_badges_earned = UserBadge.objects.count()
@@ -1040,14 +1385,11 @@ class AdminGamificationStatsView(APIView):
         ).order_by('category')
         
         # Top performers this week
-        from datetime import timedelta
         week_ago = timezone.now() - timedelta(days=7)
         
         top_uploaders = User.objects.annotate(
             upload_count=Count('uploads')
         ).filter(upload_count__gt=0).order_by('-upload_count')[:10]
-        
-        from apps.accounts.serializers import UserSummarySerializer
         
         return Response({
             'total_points': total_points,

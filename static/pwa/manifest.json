@@ -1,0 +1,121 @@
+{
+  "name": "CampusHub",
+  "short_name": "CampusHub",
+  "description": "University resource sharing platform for students",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/pwa/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/static/pwa/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "categories": ["education", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Search Resources",
+      "short_name": "Search",
+      "description": "Search for study materials",
+      "url": "/search/",
+      "icons": [{"src": "/static/pwa/icons/search.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "My Bookmarks",
+      "short_name": "Saved",
+      "description": "View saved resources",
+      "url": "/bookmarks/",
+      "icons": [{"src": "/static/pwa/icons/bookmark.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "Upload Resource",
+      "short_name": "Upload",
+      "description": "Upload study materials",
+      "url": "/resources/upload/",
+      "icons": [{"src": "/static/pwa/icons/upload.png", "sizes": "96x96"}]
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "app_clip": {
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#4F46E5",
+    "url_scheme": "campushub",
+    "associated_domains": [
+      "applinks:campushub.com"
+    ],
+    "paths": [
+      {
+        "path": "/clip/resources/*",
+        "action": "open"
+      },
+      {
+        "path": "/clip/announcements/*",
+        "action": "open"
+      },
+      {
+        "path": "/clip/search/*",
+        "action": "open"
+      }
+    ]
+  },
+  "url_handlers": [
+    {
+      "origin": "https://campushub.com",
+      "paths": [
+        "/resources/*",
+        "/announcements/*",
+        "/search/*",
+        "/profile/*"
+      ]
+    }
+  ]
+}

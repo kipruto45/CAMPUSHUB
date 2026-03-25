@@ -23,8 +23,8 @@ class IsResourceOwnerOrReadOnly(permissions.BasePermission):
                 return True
             return obj.uploaded_by == request.user
 
-        # Owners can manage their own resources unless the item is archived.
-        return obj.uploaded_by == request.user and obj.status != "archived"
+        # Owners can only modify resources while awaiting moderation.
+        return obj.uploaded_by == request.user and obj.status == "pending"
 
 
 class CanUploadResource(permissions.BasePermission):

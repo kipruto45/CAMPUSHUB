@@ -12,6 +12,9 @@ from .views import CourseListView, CourseViewSet, UnitListView, UnitViewSet
 app_name = "courses"
 
 router = DefaultRouter()
+# Prevent `/.../courses/` alias roots from resolving to router API-root payloads.
+# This keeps legacy list endpoints reachable when multiple URL aliases coexist.
+router.include_root_view = False
 router.register(r"courses", CourseViewSet, basename="course")
 router.register(r"units", UnitViewSet, basename="unit")
 

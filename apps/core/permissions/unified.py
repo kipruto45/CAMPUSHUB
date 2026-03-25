@@ -297,7 +297,16 @@ class IsModerator(BasePermission):
     """Allow moderator users."""
     
     def has_permission(self, request, view):
-        return is_moderator(request.user)
+        user = getattr(request, "user", None)
+        if not is_authenticated(user):
+            return False
+
+        # Strict check for direct moderator role membership only.
+        has_assigned_role = getattr(user, "has_assigned_role", None)
+        if callable(has_assigned_role):
+            return bool(has_assigned_role("MODERATOR"))
+
+        return str(getattr(user, "role", "")).upper() == "MODERATOR"
 
 
 class IsAdminOrModerator(BasePermission):

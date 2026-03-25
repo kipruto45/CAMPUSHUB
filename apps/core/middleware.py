@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 
 from django.conf import settings
+from django.utils.deprecation import MiddlewareMixin
+
+# Allow importing compatibility submodules like
+# `apps.core.middleware.api_version_headers` even though this module is
+# historically a single-file middleware module.
+__path__ = [os.path.join(os.path.dirname(__file__), "middleware")]
 
 
 class RequestContextMiddleware:
@@ -122,3 +129,39 @@ class APIUsageLoggingMiddleware:
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+
+class APIVersionHeadersMiddleware(MiddlewareMixin):
+    """
+    Inject versioning headers for API responses.
+
+    Note: We keep `/api/mobile/` on the mobile API version string while the
+    unversioned `/api/` namespace is marked as legacy (deprecated).
+    """
+
+    def process_response(self, request, response):
+        latest_version = "v1"
+        path = getattr(request, "path", "") or ""
+
+        if path.startswith("/api/mobile/"):
+            version = str(getattr(settings, "MOBILE_API_VERSION", "1.0"))
+        elif "/api/v1/" in path:
+            version = "v1"
+        elif "/api/v2/" in path:
+            version = "v2"
+        elif path.startswith("/api/"):
+            version = "legacy"
+        else:
+            version = getattr(request, "version", None) or "legacy"
+
+        response["X-API-Version"] = str(version)
+
+        # Mark deprecated when not on the latest advertised version.
+        if str(version) == "legacy":
+            response["Deprecation"] = "true"
+        elif str(version) != latest_version and str(version).startswith("v"):
+            response["Deprecation"] = "false"
+        else:
+            response["Deprecation"] = "false"
+
+        return response

@@ -63,13 +63,14 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def mark_all_read(self, request):
         """Mark all notifications as read."""
-        delete_qs = Notification.objects.filter(recipient=request.user, is_read=False)
-        deleted_count = delete_qs.count()
-        delete_qs.delete()
+        updated_count = Notification.objects.filter(
+            recipient=request.user,
+            is_read=False,
+        ).update(is_read=True)
         return Response(
             {
-                "message": "All unread notifications marked as read and deleted.",
-                "deleted_count": deleted_count,
+                "message": "All notifications marked as read.",
+                "updated_count": updated_count,
             }
         )
 
@@ -82,21 +83,19 @@ class NotificationViewSet(viewsets.ModelViewSet):
         notification_ids = serializer.validated_data.get("notification_ids", [])
 
         if notification_ids:
-            delete_qs = Notification.objects.filter(
+            update_qs = Notification.objects.filter(
                 recipient=request.user, id__in=notification_ids, is_read=False
             )
-            deleted_count = delete_qs.count()
-            delete_qs.delete()
+            updated_count = update_qs.update(is_read=True)
         else:
             # If no IDs provided, mark all as read
-            delete_qs = Notification.objects.filter(recipient=request.user, is_read=False)
-            deleted_count = delete_qs.count()
-            delete_qs.delete()
+            update_qs = Notification.objects.filter(recipient=request.user, is_read=False)
+            updated_count = update_qs.update(is_read=True)
 
         return Response(
             {
-                "message": "Notifications marked as read and deleted.",
-                "deleted_count": deleted_count,
+                "message": "Notifications marked as read.",
+                "updated_count": updated_count,
             }
         )
 
@@ -111,9 +110,16 @@ class NotificationViewSet(viewsets.ModelViewSet):
                 {"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN
             )
 
-        notification.delete()
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read", "updated_at"])
 
-        return Response({"message": "Notification marked as read and deleted."})
+        return Response(
+            {
+                "id": str(notification.id),
+                "is_read": notification.is_read,
+            }
+        )
 
     @action(detail=False, methods=["post"])
     def register_device(self, request):

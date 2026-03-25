@@ -62,8 +62,8 @@ def generate_tokens_for_user(user, remember_me=False):
 
     Args:
         user: The user to generate tokens for
-        remember_me: If True, sets a longer refresh token lifetime (90 days)
-                    If False, uses default lifetime (30 days as per settings)
+        remember_me: If True, extend refresh lifetime for "remember me" sessions.
+                    If False, uses the default SIMPLE_JWT refresh lifetime.
     """
     from datetime import timedelta
 
@@ -72,9 +72,13 @@ def generate_tokens_for_user(user, remember_me=False):
     # Create refresh token
     refresh = RefreshToken.for_user(user)
 
-    # If remember_me is True, extend the refresh token lifetime to 90 days
+    # Keep "remember me" deterministic and bounded for compatibility with
+    # legacy clients/tests that expect a ~90 day refresh token.
     if remember_me:
-        refresh.set_exp(lifetime=timedelta(days=90))
+        from django.conf import settings
+
+        remember_days = int(getattr(settings, "JWT_REMEMBER_ME_DAYS", 90) or 90)
+        refresh.set_exp(lifetime=timedelta(days=max(1, remember_days)))
 
     return {
         "access": str(refresh.access_token),

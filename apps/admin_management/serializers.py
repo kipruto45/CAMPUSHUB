@@ -4,6 +4,15 @@ from rest_framework import serializers
 
 from apps.accounts.models import User
 from apps.accounts.serializers import ProfileSerializer
+from apps.admin_management.models import (
+    AdminInvitationBatch,
+    AdminInvitationRole,
+    AdminRoleInvitation,
+)
+from apps.admin_management.services import (
+    actor_can_invite_role,
+    build_role_invitation_landing_url,
+)
 from apps.announcements.models import Announcement
 from apps.courses.models import Course, Unit
 from apps.faculties.models import Department, Faculty
@@ -121,6 +130,297 @@ class AdminUserRoleUpdateSerializer(serializers.Serializer):
 
     def validate_role(self, value):
         return str(value).upper()
+
+
+class AdminInvitationRoleSerializer(serializers.ModelSerializer):
+    """Serializer for invitable role definitions."""
+
+    can_invite = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminInvitationRole
+        fields = [
+            "id",
+            "code",
+            "name",
+            "description",
+            "is_active",
+            "is_assignable",
+            "sort_order",
+            "requires_superuser",
+            "inviter_permissions",
+            "permission_preset",
+            "email_subject_template",
+            "email_body_template",
+            "metadata",
+            "can_invite",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_can_invite(self, obj) -> bool:
+        request = self.context.get("request")
+        actor = request.user if request and getattr(request, "user", None) else None
+        return actor_can_invite_role(actor, obj)
+
+
+class AdminInvitationBatchSerializer(serializers.ModelSerializer):
+    """Serializer for bulk invitation batches."""
+
+    invited_by_name = serializers.SerializerMethodField()
+    success_rate = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = AdminInvitationBatch
+        fields = [
+            "id",
+            "name",
+            "source_file_name",
+            "invited_by",
+            "invited_by_name",
+            "total_rows",
+            "successful_rows",
+            "failed_rows",
+            "success_rate",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_invited_by_name(self, obj) -> str:
+        return _user_display_name(obj.invited_by)
+
+
+class AdminRoleInvitationSerializer(serializers.ModelSerializer):
+    """Serializer for admin-managed role invitations."""
+
+    invited_by_name = serializers.SerializerMethodField()
+    accepted_by_name = serializers.SerializerMethodField()
+    revoked_by_name = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
+    has_existing_account = serializers.SerializerMethodField()
+    accept_url = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    role_details = serializers.SerializerMethodField()
+    batch = AdminInvitationBatchSerializer(read_only=True)
+
+    class Meta:
+        model = AdminRoleInvitation
+        fields = [
+            "id",
+            "email",
+            "role",
+            "roles",
+            "role_details",
+            "note",
+            "status",
+            "source",
+            "metadata",
+            "accepted_metadata",
+            "email_subject",
+            "email_body",
+            "invited_by",
+            "invited_by_name",
+            "accepted_by",
+            "accepted_by_name",
+            "revoked_by",
+            "revoked_by_name",
+            "batch",
+            "has_existing_account",
+            "accept_url",
+            "expires_at",
+            "last_sent_at",
+            "accepted_at",
+            "revoked_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_invited_by_name(self, obj) -> str:
+        return _user_display_name(obj.invited_by)
+
+    def get_accepted_by_name(self, obj) -> str:
+        return _user_display_name(obj.accepted_by)
+
+    def get_revoked_by_name(self, obj) -> str:
+        return _user_display_name(obj.revoked_by)
+
+    def get_has_existing_account(self, obj) -> bool:
+        return User.objects.filter(email__iexact=obj.email).exists()
+
+    def get_accept_url(self, obj) -> str:
+        return build_role_invitation_landing_url(self.context.get("request"), obj.token)
+
+    def get_roles(self, obj) -> list[str]:
+        return obj.get_role_codes()
+
+    def get_role_details(self, obj) -> list[dict]:
+        details = []
+        for role_assignment in obj.get_role_assignments():
+            if not role_assignment.role_definition_id:
+                continue
+            details.append(
+                {
+                    "code": role_assignment.role_definition.code,
+                    "name": role_assignment.role_definition.name,
+                    "description": role_assignment.role_definition.description,
+                    "is_primary": role_assignment.is_primary,
+                    "permission_preset": role_assignment.permission_preset,
+                }
+            )
+        if details:
+            return details
+        return [
+            {
+                "code": obj.role,
+                "name": obj.get_role_display(),
+                "description": "",
+                "is_primary": True,
+                "permission_preset": [],
+            }
+        ]
+
+
+class AdminRoleInvitationCreateSerializer(serializers.Serializer):
+    """Payload for creating a role invitation."""
+
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(
+        choices=[choice[0] for choice in User.ROLE_CHOICES],
+        required=False,
+    )
+    roles = serializers.ListField(
+        child=serializers.ChoiceField(choices=[choice[0] for choice in User.ROLE_CHOICES]),
+        required=False,
+        allow_empty=False,
+    )
+    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    metadata = serializers.JSONField(required=False)
+    email_subject = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    email_body = serializers.CharField(required=False, allow_blank=True)
+    expires_in_days = serializers.IntegerField(required=False, min_value=1, max_value=30, default=7)
+
+    def validate_email(self, value):
+        return str(value or "").strip().lower()
+
+    def validate_role(self, value):
+        return str(value or "").strip().upper()
+
+    def validate_roles(self, values):
+        normalized_values = []
+        for value in values:
+            normalized_value = str(value or "").strip().upper()
+            if normalized_value not in normalized_values:
+                normalized_values.append(normalized_value)
+        return normalized_values
+
+    def validate(self, attrs):
+        selected_roles = attrs.get("roles") or ([attrs["role"]] if attrs.get("role") else [])
+        if not selected_roles:
+            raise serializers.ValidationError({"roles": "Select at least one role."})
+
+        role_definitions = {
+            role_definition.code: role_definition
+            for role_definition in AdminInvitationRole.objects.filter(
+                code__in=selected_roles,
+                is_active=True,
+                is_assignable=True,
+            )
+        }
+        missing_roles = [role for role in selected_roles if role not in role_definitions]
+        if missing_roles:
+            raise serializers.ValidationError(
+                {"roles": f"Unknown or inactive roles: {', '.join(missing_roles)}."}
+            )
+
+        request = self.context.get("request")
+        actor = request.user if request and getattr(request, "user", None) else None
+        forbidden_roles = [
+            role_definition.name
+            for role_definition in role_definitions.values()
+            if not actor_can_invite_role(actor, role_definition)
+        ]
+        if forbidden_roles:
+            raise serializers.ValidationError(
+                {
+                    "roles": (
+                        "You do not have permission to invite: "
+                        + ", ".join(sorted(forbidden_roles))
+                        + "."
+                    )
+                }
+            )
+
+        attrs["roles"] = selected_roles
+        existing_user = User.objects.filter(email__iexact=attrs["email"]).first()
+        existing_role_codes = set(
+            getattr(existing_user, "assigned_role_codes", []) if existing_user else []
+        )
+        if existing_user and set(selected_roles).issubset(existing_role_codes):
+            raise serializers.ValidationError(
+                {"email": "This user already has the selected role assignments."}
+            )
+        return attrs
+
+
+class AdminRoleInvitationBulkCreateSerializer(serializers.Serializer):
+    """Payload for CSV-based bulk invitation uploads."""
+
+    csv_file = serializers.FileField(required=False)
+    csv_text = serializers.CharField(required=False, allow_blank=True)
+    default_roles = serializers.ListField(
+        child=serializers.ChoiceField(choices=[choice[0] for choice in User.ROLE_CHOICES]),
+        required=False,
+        allow_empty=False,
+    )
+    default_note = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    default_expires_in_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=30,
+        default=7,
+    )
+
+    def validate_default_roles(self, values):
+        normalized_values = []
+        for value in values:
+            normalized_value = str(value or "").strip().upper()
+            if normalized_value not in normalized_values:
+                normalized_values.append(normalized_value)
+        return normalized_values
+
+    def validate(self, attrs):
+        csv_file = attrs.get("csv_file")
+        csv_text = str(attrs.get("csv_text") or "").strip()
+        if not csv_file and not csv_text:
+            raise serializers.ValidationError(
+                {"csv_file": "Provide either a CSV file or CSV text content."}
+            )
+        return attrs
+
+
+class AdminRoleInvitationAcceptSerializer(serializers.Serializer):
+    """Payload for accepting a role invitation."""
+
+    token = serializers.CharField()
+    full_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    password = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    password_confirm = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    registration_number = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
+
+    def validate(self, attrs):
+        password = attrs.get("password", "")
+        password_confirm = attrs.pop("password_confirm", "")
+        if password or password_confirm:
+            if password != password_confirm:
+                raise serializers.ValidationError(
+                    {"password_confirm": "Passwords do not match."}
+                )
+        return attrs
 
 
 class AdminResourceSerializer(serializers.ModelSerializer):

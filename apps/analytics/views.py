@@ -2,15 +2,22 @@
 Views for analytics app.
 """
 
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db import models
+from django.utils import timezone
+from django.db.models.functions import TruncDay, ExtractHour
+from drf_spectacular.utils import extend_schema
 
 from apps.accounts.serializers import UserSerializer
 from apps.core.permissions import IsAdminOrModerator
 from apps.resources.serializers import ResourceListSerializer
 
 from .services import AnalyticsService, DashboardChartService
+from .models import AnalyticsEvent
+from apps.core.predictive_analytics import PredictiveAnalyticsService
 
 
 def _safe_positive_int(value, default, minimum=1, maximum=365):
@@ -26,7 +33,7 @@ class DashboardView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         period = request.query_params.get("period", "month")
         stats = AnalyticsService.get_admin_dashboard_payload(period=period)
         return Response(stats)
@@ -37,7 +44,7 @@ class UserActivitySummaryView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -52,7 +59,7 @@ class UserEngagementScoreView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         score = AnalyticsService.get_user_engagement_score(request.user)
         return Response({"engagement_score": score})
 
@@ -62,7 +69,7 @@ class UserActivityHeatmapView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -77,7 +84,7 @@ class UserDemographicsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         demographics = AnalyticsService.get_user_demographics()
         return Response(demographics)
 
@@ -87,7 +94,7 @@ class PlatformHealthView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         health = AnalyticsService.get_platform_health()
         return Response(health)
 
@@ -97,7 +104,7 @@ class ResourceAnalyticsView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         resource_id = request.query_params.get("resource_id")
         if not resource_id:
             return Response({"error": "resource_id required"}, status=400)
@@ -114,7 +121,7 @@ class ContentTrendsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=7,
@@ -129,7 +136,7 @@ class TopContributorsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         limit = _safe_positive_int(
             request.query_params.get("limit"),
             default=10,
@@ -144,7 +151,7 @@ class DownloadsChartView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -159,7 +166,7 @@ class ResourceTypesChartView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         chart_data = DashboardChartService.get_resource_types_chart_data()
         return Response(chart_data)
 
@@ -169,7 +176,7 @@ class MostDownloadedResourcesView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         limit = _safe_positive_int(
             request.query_params.get("limit"),
             default=10,
@@ -187,7 +194,7 @@ class MostActiveUploadersView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         limit = _safe_positive_int(
             request.query_params.get("limit"),
             default=10,
@@ -203,7 +210,7 @@ class ResourcesByCourseView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         data = AnalyticsService.get_resources_by_course()
         return Response(list(data))
 
@@ -213,7 +220,7 @@ class UploadTrendsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -228,7 +235,7 @@ class DownloadTrendsView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -236,3 +243,282 @@ class DownloadTrendsView(APIView):
         )
         data = AnalyticsService.get_daily_download_trends(days)
         return Response(list(data))
+
+
+class AdminDashboardStatsView(APIView):
+    """High-level admin dashboard stats."""
+
+    permission_classes = [IsAuthenticated, IsAdminOrModerator]
+
+    def get(self, request, *args, **kwargs):
+        stats = AnalyticsService.get_admin_dashboard_stats()
+        return Response(stats)
+
+
+class EventIngestView(APIView):
+    """
+    Lightweight event ingestion endpoint for client-side tracking.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        payload = request.data or {}
+        event_type = payload.get("event_type")
+        event_name = payload.get("event_name") or event_type
+
+        if not event_type:
+            return Response({"error": "event_type is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        event = AnalyticsEvent.objects.create(
+            user=request.user if request.user and request.user.is_authenticated else None,
+            session_id=payload.get("session_id", ""),
+            event_type=event_type,
+            event_name=event_name,
+            resource_id=payload.get("resource_id"),
+            course_id=payload.get("course_id"),
+            unit_id=payload.get("unit_id"),
+            properties=payload.get("properties", {}),
+            referrer=payload.get("referrer", ""),
+            utm_source=payload.get("utm_source", ""),
+            utm_medium=payload.get("utm_medium", ""),
+            utm_campaign=payload.get("utm_campaign", ""),
+            device_type=payload.get("device_type", ""),
+            browser=payload.get("browser", ""),
+            os=payload.get("os", ""),
+            country=payload.get("country", ""),
+            city=payload.get("city", ""),
+            duration_seconds=payload.get("duration_seconds"),
+        )
+
+        return Response({"id": str(event.id), "created": True}, status=status.HTTP_201_CREATED)
+
+
+class EventAnalyticsView(APIView):
+    """
+    Event analytics for dashboards (attendance trend, type distribution, heatmap).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Event analytics",
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "attendance_trend": {"type": "array"},
+                    "type_distribution": {"type": "array"},
+                    "heatmap": {"type": "array"},
+                },
+                "example": {
+                    "attendance_trend": [{"period": "2026-03-01", "registered": 20, "attended": 15}],
+                    "type_distribution": [{"type": "event_attended", "count": 10}],
+                    "heatmap": [{"slot": "H10", "count": 5}],
+                },
+            }
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        period = request.query_params.get("period", "month")
+        days = 7 if period == "week" else 30 if period == "month" else 365
+        since = timezone.now() - timezone.timedelta(days=days)
+
+        qs = AnalyticsEvent.objects.filter(timestamp__gte=since)
+
+        # Attendance trend approximation: split event types into registered/attended buckets
+        agg = (
+            qs.annotate(day=TruncDay("timestamp"))
+            .values("day", "event_type")
+            .annotate(count=models.Count("id"))
+            .order_by("day")
+        )
+        day_map = {}
+        for row in agg:
+            key = row["day"].date().isoformat()
+            bucket = day_map.setdefault(key, {"period": key, "registered": 0, "attended": 0})
+            if row["event_type"] in {"event_attend", "event_attended", "attendance"}:
+                bucket["attended"] += row["count"]
+            else:
+                bucket["registered"] += row["count"]
+        attendance_trend = list(day_map.values())
+
+        type_counts = (
+            qs.values("event_type")
+            .annotate(count=models.Count("id"))
+            .order_by("-count")
+        )
+        type_distribution = [
+            {"type": row["event_type"] or "unknown", "count": row["count"]}
+            for row in type_counts
+        ]
+
+        heat_counts = (
+            qs.annotate(hour=ExtractHour("timestamp"))
+            .values("hour")
+            .annotate(count=models.Count("id"))
+            .order_by("hour")
+        )
+        heatmap = [{"slot": f"H{int(row['hour']):02d}", "count": row["count"]} for row in heat_counts]
+
+        payload = {
+            "attendance_trend": attendance_trend,
+            "type_distribution": type_distribution,
+            "demographics": [],
+            "registration_vs_attendance": [],
+            "popular_categories": [],
+            "heatmap": heatmap,
+        }
+        return Response(payload)
+
+
+# =========================================================================
+# At-Risk Student Views
+# =========================================================================
+
+
+class AtRiskStudentsView(APIView):
+    """
+    Get list of at-risk students.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminOrModerator]
+
+    @extend_schema(
+        summary="At-risk students",
+        parameters=[
+            {
+                "name": "risk_level",
+                "in": "query",
+                "description": "Filter by risk level (low, medium, high, critical)",
+                "schema": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+            },
+            {
+                "name": "course_id",
+                "in": "query",
+                "description": "Filter by course ID",
+                "schema": {"type": "string"},
+            },
+            {
+                "name": "limit",
+                "in": "query",
+                "description": "Maximum number of results",
+                "schema": {"type": "integer", "default": 50},
+            },
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        risk_level = request.query_params.get("risk_level")
+        course_id = request.query_params.get("course_id")
+        limit = _safe_positive_int(request.query_params.get("limit"), default=50, maximum=100)
+
+        at_risk_students = PredictiveAnalyticsService.get_at_risk_students(
+            risk_level=risk_level,
+            course_id=course_id,
+            limit=limit
+        )
+
+        return Response({
+            "count": len(at_risk_students),
+            "students": at_risk_students
+        })
+
+
+class StudentRiskHistoryView(APIView):
+    """
+    Get risk assessment history for a student.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Student risk history",
+        parameters=[
+            {
+                "name": "user_id",
+                "in": "query",
+                "description": "User ID to get history for",
+                "schema": {"type": "integer"},
+                "required": True,
+            },
+            {
+                "name": "limit",
+                "in": "query",
+                "description": "Maximum number of records",
+                "schema": {"type": "integer", "default": 30},
+            },
+        ],
+    )
+    def get(self, request, *args, **kwargs):
+        user_id = request.query_params.get("user_id")
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=400)
+
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return Response({"error": "Invalid user_id"}, status=400)
+
+        limit = _safe_positive_int(request.query_params.get("limit"), default=30, maximum=100)
+
+        history = PredictiveAnalyticsService.get_student_risk_history(user_id, limit)
+
+        return Response({
+            "user_id": user_id,
+            "history": history
+        })
+
+
+class ManualRiskAssessmentView(APIView):
+    """
+    Manually trigger a risk assessment for a student.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminOrModerator]
+
+    @extend_schema(
+        summary="Manual risk assessment",
+        request={
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "User ID to assess"},
+                "course_id": {"type": "string", "description": "Optional course ID"},
+            },
+            "required": ["user_id"],
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "assessment": {"type": "object"},
+                },
+            }
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        user_id = request.data.get("user_id")
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=400)
+
+        course_id = request.data.get("course_id")
+
+        result = PredictiveAnalyticsService.trigger_manual_assessment(user_id, course_id)
+
+        if not result.get("success"):
+            return Response(result, status=404)
+
+        return Response(result)
+
+
+class AtRiskSummaryView(APIView):
+    """
+    Get summary of at-risk students across the platform.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminOrModerator]
+
+    def get(self, request, *args, **kwargs):
+        summary = PredictiveAnalyticsService.get_at_risk_summary()
+        return Response(summary)

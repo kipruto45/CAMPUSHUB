@@ -8,10 +8,12 @@ def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
     
-    # Auto-add 0.0.0.0 to runserver for network access
+    # Auto-add 0.0.0.0:8000 to runserver when the user didn't supply an addr/port.
+    # This preserves explicit addrport usage like `127.0.0.1:8000` and avoids
+    # accidentally passing multiple positional addrports.
     if len(sys.argv) > 1 and sys.argv[1] == 'runserver':
-        if '0.0.0.0' not in sys.argv[2] if len(sys.argv) > 2 else True:
-            # Insert 0.0.0.0:8000 after runserver
+        has_addrport = any(arg and not str(arg).startswith('-') for arg in sys.argv[2:])
+        if not has_addrport:
             sys.argv.insert(2, '0.0.0.0:8000')
     
     try:

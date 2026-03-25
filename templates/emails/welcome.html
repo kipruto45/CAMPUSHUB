@@ -112,7 +112,7 @@
             <p>To get started, verify your email address by clicking the button below:</p>
             
             <center>
-                <a href="{{ verification_url }}" class="btn">Verify Email Address</a>
+                <a href="{{ verification_url|default:'#' }}" class="btn">Verify Email Address</a>
             </center>
             
             <p>If the button doesn't work, copy and paste this link into your browser:</p>
@@ -135,11 +135,11 @@
         </div>
         <div class="footer">
             <div class="social-links">
-                <a href="#">Website</a> | 
-                <a href="#">Help Center</a> | 
-                <a href="#">Contact Us</a>
+                <a href="{{ website_url|default:'#' }}">Website</a> | 
+                <a href="{{ help_center_url|default:'#' }}">Help Center</a> | 
+                <a href="{{ contact_url|default:'#' }}">Contact Us</a>
             </div>
-            <p>© 2024 CampusHub. All rights reserved.</p>
+            <p>© 2026 CampusHub. All rights reserved.</p>
             <p style="font-size: 12px;">
                 You're receiving this email because you created an account on CampusHub.
             </p>

@@ -315,7 +315,8 @@ class ModerationService:
         """Auto-hide risky resources instead of sending them to a manual queue."""
         state_changed = False
         if resource.status == "approved" or resource.is_public:
-            resource.status = "flagged"
+            # Move flagged resources back into manual moderation queue.
+            resource.status = "pending"
             resource.is_public = False
             resource.save(update_fields=["status", "is_public", "updated_at"])
             state_changed = True

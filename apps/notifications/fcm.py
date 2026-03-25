@@ -73,7 +73,7 @@ class FCMService:
         """Load FCM configuration from settings."""
         try:
             server_key = getattr(settings, "FCM_SERVER_KEY", None)
-            if not server_key:
+            if server_key is None:
                 # Try environment variable
                 server_key = os.environ.get("FCM_SERVER_KEY", "")
 
@@ -82,16 +82,9 @@ class FCMService:
             # Check for service account file path
             service_account_path = getattr(settings, "FCM_SERVICE_ACCOUNT_PATH", None)
             if not service_account_path:
-                # Try default locations
-                possible_paths = [
-                    os.path.join(os.getcwd(), "firebase-service-account.json"),
-                    os.path.join(os.path.dirname(__file__), "..", "..", "firebase-service-account.json"),
-                    "firebase-service-account.json",
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        service_account_path = path
-                        break
+                service_account_path = os.environ.get("FCM_SERVICE_ACCOUNT_PATH", "")
+            if service_account_path and not os.path.exists(service_account_path):
+                service_account_path = ""
 
             enabled_setting = getattr(settings, "FCM_ENABLED", True)
             if isinstance(enabled_setting, str):
@@ -102,8 +95,10 @@ class FCMService:
                     "on",
                 }
 
-            # Enable if we have either server key or service account
-            has_credentials = bool(server_key or service_account_path)
+            # Enable only when an API server key is explicitly configured.
+            # Service-account auth may still be used for header generation when
+            # available, but does not implicitly enable the service.
+            has_credentials = bool(server_key)
             enabled = bool(enabled_setting and has_credentials)
 
             return FCMConfig(

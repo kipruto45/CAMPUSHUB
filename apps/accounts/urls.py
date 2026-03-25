@@ -20,7 +20,10 @@ from .views import (DeleteAccountView, EmailVerificationView, JWTTokenRefreshVie
                     ProfilePreferencesView, ProfileView, RegisterView,
                     ResendVerificationEmailView, UserActivityViewSet,
                     UserSearchView, UserSessionRevokeView, UserSessionsView,
-                    UserViewSet)
+                    UserViewSet, MagicLinkRequestView, MagicLinkConsumeView,
+                    PasskeyRegistrationStartView, PasskeyRegistrationCompleteView,
+                    PasskeyAuthenticationStartView, PasskeyAuthenticationCompleteView,
+                    UserPasskeysView, PasskeyUpdateView)
 
 app_name = "accounts"
 
@@ -33,6 +36,15 @@ urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("magic-link/", MagicLinkRequestView.as_view(), name="magic-link-request"),
+    path("magic-link/consume/", MagicLinkConsumeView.as_view(), name="magic-link-consume"),
+    # Passkey (WebAuthn/FIDO2) endpoints
+    path("passkeys/register/start/", PasskeyRegistrationStartView.as_view(), name="passkey-register-start"),
+    path("passkeys/register/complete/", PasskeyRegistrationCompleteView.as_view(), name="passkey-register-complete"),
+    path("passkeys/auth/start/", PasskeyAuthenticationStartView.as_view(), name="passkey-auth-start"),
+    path("passkeys/auth/complete/", PasskeyAuthenticationCompleteView.as_view(), name="passkey-auth-complete"),
+    path("passkeys/", UserPasskeysView.as_view(), name="user-passkeys"),
+    path("passkeys/update/", PasskeyUpdateView.as_view(), name="passkey-update"),
     path("account/delete/", DeleteAccountView.as_view(), name="account-delete"),
     path("sessions/", UserSessionsView.as_view(), name="user-sessions"),
     path("sessions/revoke/", UserSessionRevokeView.as_view(), name="user-sessions-revoke"),
@@ -64,6 +76,11 @@ urlpatterns = [
         "password/reset/",
         PasswordResetRequestView.as_view(),
         name="password_reset_request",
+    ),
+    path(
+        "password/reset/",
+        PasswordResetRequestView.as_view(),
+        name="password_reset",
     ),
     path(
         "password/reset/confirm/<str:token>/",

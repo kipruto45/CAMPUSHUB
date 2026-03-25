@@ -10,6 +10,7 @@ from .views import (
     StudyGroupUpdateView,
     StudyGroupDeleteView,
     StudyGroupInviteLinkJoinView,
+    StudyGroupInviteLandingView,
     StudyGroupInviteLinkRevokeView,
     StudyGroupInviteLinkValidateView,
     StudyGroupInviteLinksView,
@@ -22,6 +23,7 @@ from .views import (
     StudyGroupPostCommentsView,
     StudyGroupResourcesView,
 )
+from .api import DirectMessageListView, DirectMessageSendView
 
 app_name = "social"
 
@@ -44,4 +46,9 @@ urlpatterns = [
     path("study-groups/invite-links/<str:token>/revoke/", StudyGroupInviteLinkRevokeView.as_view(), name="invite-link-revoke"),
     path("study-groups/invite-links/<str:token>/validate/", StudyGroupInviteLinkValidateView.as_view(), name="invite-link-validate"),
     path("study-groups/invite-links/<str:token>/join/", StudyGroupInviteLinkJoinView.as_view(), name="invite-link-join"),
+    path("invite/<str:token>/", StudyGroupInviteLandingView.as_view(), name="invite-landing"),
+
+    # Direct messaging (REST fallback in addition to WebSocket)
+    path("direct-messages/<int:user_id>/", DirectMessageListView.as_view(), name="direct-message-list"),
+    path("direct-messages/<int:user_id>/send/", DirectMessageSendView.as_view(), name="direct-message-send"),
 ]

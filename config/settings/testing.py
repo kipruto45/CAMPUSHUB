@@ -1,5 +1,7 @@
 """Django test settings."""
 
+from datetime import timedelta
+
 from .base import *  # noqa: F401, F403
 
 DEBUG = True
@@ -70,3 +72,7 @@ LOGGING = {
         "level": "WARNING",
     },
 }
+
+# Keep token checks deterministic for auth tests that validate short-lived
+# admin impersonation access tokens.
+SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(minutes=30)  # noqa: F405

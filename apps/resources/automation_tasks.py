@@ -23,7 +23,7 @@ def process_new_resource(resource_id):
     from .models import Resource
 
     try:
-        resource = Resource.objects.get(id=resource_id)
+        resource = Resource.objects.get(id=resource_id, is_deleted=False)
 
         # Auto-generate tags if none provided
         if not resource.tags:
@@ -48,7 +48,7 @@ def update_trending_resources():
     from .models import Resource
 
     try:
-        resources = Resource.objects.filter(status="approved", is_public=True)
+        resources = Resource.objects.filter(status="approved", is_public=True, is_deleted=False)
 
         trending_data = {}
         for resource in resources:
@@ -91,7 +91,7 @@ def send_upload_confirmation(resource_id):
     from .models import Resource
 
     try:
-        resource = Resource.objects.get(id=resource_id)
+        resource = Resource.objects.get(id=resource_id, is_deleted=False)
 
         from apps.core.emails import EmailService
 
@@ -117,7 +117,7 @@ def notify_resource_approved(resource_id):
     from .models import Resource
 
     try:
-        resource = Resource.objects.get(id=resource_id)
+        resource = Resource.objects.get(id=resource_id, is_deleted=False)
 
         Notification.objects.create(
             recipient=resource.uploaded_by,
@@ -141,7 +141,7 @@ def notify_resource_rejected(resource_id, reason=""):
     from .models import Resource
 
     try:
-        resource = Resource.objects.get(id=resource_id)
+        resource = Resource.objects.get(id=resource_id, is_deleted=False)
 
         message = f'Your resource "{resource.title}" has been rejected.'
         if reason:
@@ -171,7 +171,7 @@ def notify_new_comment(resource_id, comment_id):
 
     try:
         comment = Comment.objects.get(id=comment_id)
-        resource = Resource.objects.get(id=resource_id)
+        resource = Resource.objects.get(id=resource_id, is_deleted=False)
 
         # Don't notify if user commented on their own resource
         if comment.user != resource.uploaded_by:

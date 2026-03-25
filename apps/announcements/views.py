@@ -80,7 +80,7 @@ class AnnouncementViewSet(viewsets.ReadOnlyModelViewSet):
         return response
 
     @action(detail=False, methods=["get"])
-    def pinned(self, request):
+    def pinned(self, request, *args, **kwargs):
         """Get pinned announcements."""
         cache_key = "announcements:pinned"
         cached = cache.get(cache_key)
@@ -179,21 +179,21 @@ class AnnouncementAdminViewSet(viewsets.ModelViewSet):
         return announcement
 
     @action(detail=True, methods=["post"])
-    def publish(self, request, slug=None):
+    def publish(self, request, slug=None, *args, **kwargs):
         """Publish an announcement."""
         announcement = self.get_object()
         announcement = AnnouncementService.publish_announcement(announcement)
         return Response(AnnouncementDetailSerializer(announcement).data)
 
     @action(detail=True, methods=["post"])
-    def archive(self, request, slug=None):
+    def archive(self, request, slug=None, *args, **kwargs):
         """Archive an announcement."""
         announcement = self.get_object()
         announcement = AnnouncementService.archive_announcement(announcement)
         return Response(AnnouncementDetailSerializer(announcement).data)
 
     @action(detail=True, methods=["post"])
-    def unpublish(self, request, slug=None):
+    def unpublish(self, request, slug=None, *args, **kwargs):
         """Unpublish an announcement."""
         announcement = self.get_object()
         announcement = AnnouncementService.unpublish_announcement(announcement)

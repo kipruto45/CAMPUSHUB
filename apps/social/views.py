@@ -4,6 +4,7 @@ API views for study groups.
 
 from apps.social.models import StudyGroup, StudyGroupMember, StudyGroupPost, StudyGroupResource, StudyGroupPostLike, StudyGroupPostComment
 from apps.resources.models import Resource
+from apps.core.pagination import StandardResultsSetPagination
 from apps.core.permissions.unified import IsOwner
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -11,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 
 from .serializers import (
     StudyGroupCreateSerializer,
@@ -262,15 +263,24 @@ class StudyGroupResourcesView(APIView):
     """List and share resources in a study group."""
 
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
 
-    def get(self, request, group_id):
+    def get(self, request, group_id, *args, **kwargs):
         """List resources shared in a study group."""
         group = StudyGroupService.get_group(group_id, request.user)
         resources = StudyGroupService.list_resources(group)
-        serializer = StudyGroupResourceSerializer(resources, many=True, context={"request": request})
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(resources, request, view=self)
+        serializer = StudyGroupResourceSerializer(
+            page if page is not None else resources,
+            many=True,
+            context={"request": request},
+        )
+        if page is not None:
+            return paginator.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
-    def post(self, request, group_id):
+    def post(self, request, group_id, *args, **kwargs):
         """Share a resource in a study group."""
         group = StudyGroupService.get_group(group_id, request.user)
         
@@ -471,13 +481,25 @@ class StudyGroupInviteLandingView(APIView):
         ).strip() or "campushub"
 
         if wants_html:
-            if frontend_base:
-                target = f"{frontend_base}/group-invite?token={token}"
-            else:
-                target = f"{deeplink_scheme}://group-invite?token={token}"
-            return HttpResponseRedirect(target)
+            if validation.get("valid"):
+                if frontend_base:
+                    target = f"{frontend_base}/group-invite?token={token}"
+                else:
+                    target = f"{deeplink_scheme}://group-invite?token={token}"
+                return HttpResponseRedirect(target)
 
-        return Response(validation)
+            html = """
+            <html><head><title>Invite not available</title></head>
+            <body style='font-family: system-ui, -apple-system, sans-serif; padding: 32px; text-align: center;'>
+                <h2>Invite not available</h2>
+                <p>This group invite link is invalid, expired, or revoked.</p>
+                <p>Ask the group owner to send you a fresh invite.</p>
+            </body></html>
+            """
+            return HttpResponse(html, status=status.HTTP_404_NOT_FOUND)
+
+        status_code = status.HTTP_200_OK if validation.get("valid") else status.HTTP_404_NOT_FOUND
+        return Response(validation, status=status_code)
 
 
 class StudyGroupInviteLinkJoinView(APIView):

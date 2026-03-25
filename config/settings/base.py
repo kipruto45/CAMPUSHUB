@@ -91,8 +91,11 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     "apps.core",
     "apps.accounts",
+    "apps.ai.apps.AIConfig",
     "apps.faculties",
     "apps.courses",
+    "apps.calendar",
+    "apps.calendar_sync",
     "apps.resources",
     "apps.bookmarks",
     "apps.comments",
@@ -101,6 +104,7 @@ LOCAL_APPS = [
     "apps.notifications",
     "apps.search",
     "apps.analytics",
+    "apps.learning_analytics",
     "apps.moderation",
     "apps.reports",
     "apps.dashboard",
@@ -112,8 +116,19 @@ LOCAL_APPS = [
     "apps.recommendations",
     "apps.gamification",
     "apps.social",
+    "apps.payments",
     "apps.two_factor",
     "apps.graphql",
+    "apps.cloud_storage",
+    "apps.integrations",
+    "apps.integrations.google_classroom",
+    "apps.integrations.microsoft_teams",
+    "apps.institutions",
+    "apps.peer_tutoring",
+    "apps.live_rooms",
+    "apps.notes",
+    "apps.referrals",
+    "apps.certificates",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -121,6 +136,8 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "apps.core.middleware.RequestContextMiddleware",
+    "apps.core.middleware.APIVersionHeadersMiddleware",
+    "apps.api.middleware.APIAnalyticsMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -281,6 +298,17 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = config("MEDIA_URL", default="media/")
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Download configuration for mobile app
+# Configure where downloaded files should be stored on the device
+DOWNLOAD_DIRECTORY = config("DOWNLOAD_DIRECTORY", default="CampusHub/Downloads")
+DOWNLOAD_TO_APP_DIRECTORY = config("DOWNLOAD_TO_APP_DIRECTORY", default="true", cast=lambda x: x.lower() in ("true", "1", "yes"))
+
+# Prevent downloads from appearing in phone's general downloads folder
+PREVENT_SYSTEM_DOWNLOADS = config("PREVENT_SYSTEM_DOWNLOADS", default="true", cast=lambda x: x.lower() in ("true", "1", "yes"))
+
+# Default storage limit for users (in MB)
+DEFAULT_STORAGE_LIMIT_MB = config("DEFAULT_STORAGE_LIMIT_MB", default=100, cast=int)
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -316,8 +344,8 @@ REST_FRAMEWORK = {
         "upload": "20/hour",
         "download": "100/hour",
         # Mobile API throttles
-        "mobile_anon": "60/minute",
-        "mobile_auth": "500/hour",
+        "mobile_anon": "30/minute",
+        "mobile_auth": "200/hour",
         "mobile_upload": "10/day",
         "mobile_download": "100/hour",
         "mobile_auth_attempt": "10/minute",
@@ -345,9 +373,9 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=int(config("JWT_ACCESS_TOKEN_LIFETIME", default=60))
     ),
-    # Long refresh token lifetime (30 days) - user stays logged in until logout
+    # Default refresh token lifetime (365 days) - user stays logged in for a year
     "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=int(config("JWT_REFRESH_TOKEN_LIFETIME", default=30))
+        days=int(config("JWT_REFRESH_TOKEN_LIFETIME", default=365))
     ),
     "ROTATE_REFRESH_TOKENS": True,  # Issue new refresh token on each use
     "BLACKLIST_AFTER_ROTATION": True,
@@ -374,6 +402,49 @@ SOCIAL_AUTH_MICROSOFT_REDIRECT_URI = config(
     "MICROSOFT_REDIRECT_URI",
     default="http://localhost:8000/api/auth/microsoft/callback/",
 )
+
+# Cloud Storage (Google Drive & OneDrive)
+GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = config("GOOGLE_CLIENT_SECRET", default="")
+GOOGLE_OAUTH_CLIENT_ID = config(
+    "GOOGLE_OAUTH_CLIENT_ID",
+    default=GOOGLE_CLIENT_ID,
+)
+GOOGLE_OAUTH_CLIENT_SECRET = config(
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    default=GOOGLE_CLIENT_SECRET,
+)
+GOOGLE_CLASSROOM_REDIRECT_URI = config(
+    "GOOGLE_CLASSROOM_REDIRECT_URI",
+    default="",
+)
+MICROSOFT_CLIENT_ID = config("MICROSOFT_CLIENT_ID", default="")
+MICROSOFT_CLIENT_SECRET = config("MICROSOFT_CLIENT_SECRET", default="")
+# Microsoft Teams OAuth (used for Teams integration)
+MICROSOFT_OAUTH_CLIENT_ID = config(
+    "MICROSOFT_OAUTH_CLIENT_ID",
+    default=MICROSOFT_CLIENT_ID,
+)
+MICROSOFT_OAUTH_CLIENT_SECRET = config(
+    "MICROSOFT_OAUTH_CLIENT_SECRET",
+    default=MICROSOFT_CLIENT_SECRET,
+)
+MICROSOFT_TEAMS_REDIRECT_URI = config(
+    "MICROSOFT_TEAMS_REDIRECT_URI",
+    default="",
+)
+CLOUD_STORAGE_REDIRECT_URI = config(
+    "CLOUD_STORAGE_REDIRECT_URI",
+    default="campushub://auth/cloud/callback/",
+)
+
+# AI assistants and summarization
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+AI_CHAT_MODEL = config("AI_CHAT_MODEL", default="gpt-4o-mini")
+AI_CHAT_TEMPERATURE = config("AI_CHAT_TEMPERATURE", default=0.4, cast=float)
+AI_CHAT_MAX_TOKENS = config("AI_CHAT_MAX_TOKENS", default=500, cast=int)
+AI_CHAT_TIMEOUT_SECONDS = config("AI_CHAT_TIMEOUT_SECONDS", default=25, cast=int)
+SUMMARIZATION_MODEL = config("SUMMARIZATION_MODEL", default=AI_CHAT_MODEL)
 
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
@@ -491,6 +562,70 @@ from apps.core.sentry import init_sentry
 
 init_sentry()
 
+# =============================================================================
+# Encryption Configuration
+# End-to-end encryption for sensitive data at rest
+# =============================================================================
+# Enable/disable encryption feature
+ENCRYPTION_ENABLED = config(
+    "ENCRYPTION_ENABLED",
+    default="false",
+    cast=lambda x: str(x).lower() in ("true", "1", "yes"),
+)
+
+# Master key for encryption (should be 32 bytes / 64 hex characters for AES-256)
+# In production, this MUST be set via environment variable and stored securely
+ENCRYPTION_MASTER_KEY = config(
+    "ENCRYPTION_MASTER_KEY",
+    default="",
+).strip()
+
+# Key derivation salt (should be unique per deployment)
+# This salt is used to derive user-specific keys from the master key
+ENCRYPTION_KEY_SALT = config(
+    "ENCRYPTION_KEY_SALT",
+    default="campushub-default-salt-change-in-production",
+).strip()
+
+# Enable graceful degradation (allow unencrypted fallback for migration)
+# When True, encryption failures will return unencrypted data instead of raising errors
+ENCRYPTION_ALLOW_FALLBACK = config(
+    "ENCRYPTION_ALLOW_FALLBACK",
+    default="true",
+    cast=lambda x: str(x).lower() in ("true", "1", "yes"),
+)
+
+# Key rotation settings
+ENCRYPTION_KEY_VERSION = config(
+    "ENCRYPTION_KEY_VERSION",
+    default="1",
+    cast=int,
+)
+
+# Store previous master keys for key rotation (comma-separated list)
+# Format: version:hex_key (e.g., "1:oldkey,2:olderkey")
+ENCRYPTION_PREVIOUS_KEYS = config(
+    "ENCRYPTION_PREVIOUS_KEYS",
+    default="",
+).strip()
+
+# Validate encryption settings
+if ENCRYPTION_ENABLED and not ENCRYPTION_MASTER_KEY:
+    import warnings
+    warnings.warn(
+        "ENCRYPTION_ENABLED is True but ENCRYPTION_MASTER_KEY is not set. "
+        "Encryption will not work properly. Please set ENCRYPTION_MASTER_KEY.",
+        UserWarning,
+    )
+
+if ENCRYPTION_MASTER_KEY and len(ENCRYPTION_MASTER_KEY) < 64:
+    import warnings
+    warnings.warn(
+        "ENCRYPTION_MASTER_KEY should be at least 64 hex characters (32 bytes) "
+        "for AES-256 encryption. Current length is insufficient for secure encryption.",
+        UserWarning,
+    )
+
 _cloudinary_credentials_present = bool(
     CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET
 )
@@ -559,6 +694,15 @@ CELERY_BEAT_SCHEDULE = {
     "moderation-open-reports-alert": {
         "task": "apps.moderation.tasks.notify_open_reports",
         "schedule": 43200,  # Every 12 hours
+    },
+    # Google Classroom sync tasks
+    "google-classroom-sync-all": {
+        "task": "apps.integrations.google_classroom.tasks.sync_all_google_classroom_accounts",
+        "schedule": 3600,  # Hourly
+    },
+    "google-classroom-refresh-tokens": {
+        "task": "apps.integrations.google_classroom.tasks.refresh_expired_tokens",
+        "schedule": 1800,  # Every 30 minutes
     },
 }
 

@@ -7,11 +7,18 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.encryption import (EncryptedFieldMixin, encrypted_charfield,
+                                  encrypted_datefield, encrypted_textfield)
+
 
 class UserManager(BaseUserManager):
     """Custom user manager for email-based authentication."""
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, email=None, password=None, **extra_fields):
+        if not email:
+            username = (extra_fields.get("username") or "").strip()
+            if username:
+                email = username
         if not email:
             raise ValueError("Email is required")
 
@@ -39,7 +46,7 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, password=None, **extra_fields):
+    def create_superuser(self, email=None, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
@@ -53,11 +60,14 @@ class UserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
-class User(AbstractUser):
+class User(EncryptedFieldMixin, AbstractUser):
     """Custom user model for CampusHub."""
 
     ROLE_CHOICES = [
         ("STUDENT", "Student"),
+        ("INSTRUCTOR", "Instructor"),
+        ("DEPARTMENT_HEAD", "Department Head"),
+        ("SUPPORT_STAFF", "Support Staff"),
         ("MODERATOR", "Moderator"),
         ("ADMIN", "Admin"),
     ]
@@ -80,19 +90,19 @@ class User(AbstractUser):
     registration_number = models.CharField(
         max_length=100, unique=True, null=True, blank=True
     )
-    phone_number = models.CharField(max_length=20, blank=True)
+    phone_number = encrypted_charfield(max_length=20, blank=True)
 
     # Legacy aliases kept for backward compatibility with older modules.
-    phone = models.CharField(max_length=20, blank=True)
-    student_id = models.CharField(max_length=100, blank=True)
+    phone = encrypted_charfield(max_length=20, blank=True)
+    student_id = encrypted_charfield(max_length=100, blank=True)
 
     profile_image = models.ImageField(
         upload_to="profiles/",
         default="defaults/profile.png",
         blank=True,
     )
-    bio = models.TextField(blank=True)
-    date_of_birth = models.DateField(null=True, blank=True)
+    bio = encrypted_textfield(blank=True)
+    date_of_birth = encrypted_datefield(null=True, blank=True)
 
     faculty = models.ForeignKey(
         "faculties.Faculty",
@@ -131,7 +141,7 @@ class User(AbstractUser):
     deleted_at = models.DateTimeField(null=True, blank=True)
     deletion_scheduled_at = models.DateTimeField(null=True, blank=True)
     is_suspended = models.BooleanField(default=False)
-    suspension_reason = models.TextField(blank=True)
+    suspension_reason = encrypted_textfield(blank=True)
 
     last_activity = models.DateTimeField(null=True, blank=True)
     login_count = models.PositiveIntegerField(default=0)
@@ -211,16 +221,54 @@ class User(AbstractUser):
         return self.email.split("@")[0]
 
     @property
+    def assigned_role_codes(self):
+        """Return all known role codes for the user."""
+        role_codes = set()
+        if self.role:
+            role_codes.add(str(self.role).upper())
+
+        role_assignments_manager = getattr(self, "role_assignments", None)
+        if role_assignments_manager is not None:
+            role_codes.update(
+                role_assignments_manager.filter(revoked_at__isnull=True).values_list(
+                    "role_definition__code", flat=True
+                )
+            )
+
+        if self.is_superuser:
+            role_codes.add("ADMIN")
+        return sorted(role_codes)
+
+    def has_assigned_role(self, role_code: str) -> bool:
+        """Check whether the user has a direct or assigned role."""
+        normalized_role = str(role_code or "").strip().upper()
+        if not normalized_role:
+            return False
+        return normalized_role in set(self.assigned_role_codes)
+
+    @property
     def is_admin(self):
-        return self.is_superuser or str(self.role).upper() == "ADMIN"
+        return self.is_superuser or self.has_assigned_role("ADMIN")
 
     @property
     def is_moderator(self):
-        return str(self.role).upper() == "MODERATOR"
+        return self.is_admin or self.has_assigned_role("MODERATOR")
 
     @property
     def is_student(self):
-        return str(self.role).upper() == "STUDENT"
+        return self.has_assigned_role("STUDENT")
+
+    @property
+    def is_instructor(self):
+        return self.has_assigned_role("INSTRUCTOR")
+
+    @property
+    def is_department_head(self):
+        return self.has_assigned_role("DEPARTMENT_HEAD")
+
+    @property
+    def is_support_staff(self):
+        return self.has_assigned_role("SUPPORT_STAFF")
 
     def update_last_login(self):
         """Track login usage and last login timestamp."""
@@ -385,7 +433,7 @@ class ProfileView(models.Model):
         return f"{self.viewer.email} viewed {self.profile_owner.email}'s profile"
 
 
-class Profile(models.Model):
+class Profile(EncryptedFieldMixin, models.Model):
     """Extended user profile model."""
 
     STATUS_CHOICES = [
@@ -395,15 +443,15 @@ class Profile(models.Model):
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
-    bio = models.TextField(blank=True, max_length=500)
-    date_of_birth = models.DateField(null=True, blank=True)
-    address = models.CharField(max_length=255, blank=True)
-    city = models.CharField(max_length=100, blank=True)
-    country = models.CharField(max_length=100, blank=True)
+    bio = encrypted_textfield(blank=True, max_length=500)
+    date_of_birth = encrypted_datefield(null=True, blank=True)
+    address = encrypted_charfield(max_length=255, blank=True)
+    city = encrypted_charfield(max_length=100, blank=True)
+    country = encrypted_charfield(max_length=100, blank=True)
     website = models.URLField(blank=True)
-    facebook = models.CharField(max_length=255, blank=True)
-    twitter = models.CharField(max_length=100, blank=True)
-    linkedin = models.CharField(max_length=100, blank=True)
+    facebook = encrypted_charfield(max_length=255, blank=True)
+    twitter = encrypted_charfield(max_length=100, blank=True)
+    linkedin = encrypted_charfield(max_length=100, blank=True)
 
     total_uploads = models.PositiveIntegerField(default=0)
     total_downloads = models.PositiveIntegerField(default=0)
@@ -499,3 +547,65 @@ class LinkedAccount(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.provider}"
+
+
+class UserPasskey(EncryptedFieldMixin, models.Model):
+    """
+    Stores WebAuthn/FIDO2 passkey credentials for users.
+    Supports multiple passkeys per user and backup options.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="passkeys"
+    )
+    name = models.CharField(max_length=100, help_text="User-defined name for this passkey")
+    credential_id = models.CharField(
+        max_length=255, unique=True, help_text="Base64-encoded credential ID"
+    )
+    public_key = encrypted_textfield(help_text="Base64-encoded public key")
+    sign_count = models.PositiveIntegerField(
+        default=0, help_text="Signature counter for credential"
+    )
+    backup_eligible = models.BooleanField(
+        default=False, help_text="Whether credential is backup-eligible"
+    )
+    backup_state = models.BooleanField(
+        default=False, help_text="Current backup state of credential"
+    )
+    aaguid = encrypted_charfield(
+        max_length=36, blank=True, help_text="Authenticator AAGUID"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "accounts"
+        verbose_name = "User Passkey"
+        verbose_name_plural = "User Passkeys"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.name}"
+
+
+class MagicLinkTokenHistory(models.Model):
+    """
+    Tracks used magic link tokens to ensure one-time use.
+    """
+
+    token_hash = models.CharField(max_length=64, db_index=True)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="magic_link_tokens"
+    )
+    used_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+
+    class Meta:
+        app_label = "accounts"
+        verbose_name = "Magic Link Token History"
+        verbose_name_plural = "Magic Link Token Histories"
+        ordering = ["-used_at"]
+
+    def __str__(self):
+        return f"Magic link used by {self.user.email} at {self.used_at}"

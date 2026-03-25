@@ -1,1 +1,1 @@
-"""Config package."""
+"""Apps package."""

@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
+from apps.core.encryption import EncryptedFieldMixin, encrypted_textfield
 from apps.core.models import TimeStampedModel
 
 
@@ -27,8 +28,21 @@ class PersonalResourceManager(models.Manager):
         return super().get_queryset().filter(is_deleted=True)
 
 
+class ResourceManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
+class ResourceTrashManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=True)
+
+
 class Resource(TimeStampedModel):
     """Model for learning resources."""
+    objects = ResourceManager()
+    all_objects = models.Manager()
+    trash = ResourceTrashManager()
 
     RESOURCE_TYPE_CHOICES = [
         ("notes", "Notes"),
@@ -59,6 +73,8 @@ class Resource(TimeStampedModel):
     file_size = models.BigIntegerField(default=0)
     file_type = models.CharField(max_length=50, blank=True)
     normalized_filename = models.CharField(max_length=255, blank=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     faculty = models.ForeignKey(
         "faculties.Faculty",
@@ -161,6 +177,24 @@ class Resource(TimeStampedModel):
 
         super().save(*args, **kwargs)
 
+    def soft_delete(self):
+        """Move file to trash prefix and mark as deleted."""
+        if self.is_deleted:
+            return
+        if self.file and self.file.name:
+            trash_path = f"trash/{self.file.name}"
+            storage = self.file.storage
+            try:
+                storage.save(trash_path, self.file)
+                storage.delete(self.file.name)
+                self.file.name = trash_path
+            except Exception:
+                pass
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.status = "archived"
+        self.save(update_fields=["is_deleted", "deleted_at", "status", "file"])
+
     def increment_view_count(self):
         """Increment view count."""
         self.view_count += 1
@@ -175,6 +209,24 @@ class Resource(TimeStampedModel):
         """Increment share count."""
         self.share_count += 1
         self.save(update_fields=["share_count"])
+
+    def soft_delete(self):
+        """Move file to trash prefix and mark as deleted."""
+        if self.is_deleted:
+            return
+        if self.file and self.file.name:
+            trash_path = f"trash/{self.file.name}"
+            storage = self.file.storage
+            try:
+                storage.save(trash_path, self.file)
+                storage.delete(self.file.name)
+                self.file.name = trash_path
+            except Exception:
+                pass
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.status = "archived"
+        self.save(update_fields=["is_deleted", "deleted_at", "status", "file"])
 
     def get_tags_list(self):
         """Get tags as a list."""
@@ -782,7 +834,7 @@ class ResourceVersion(TimeStampedModel):
         )
 
 
-class CourseProgress(TimeStampedModel):
+class CourseProgress(EncryptedFieldMixin, TimeStampedModel):
     """
     Track student progress through course resources.
     """
@@ -813,7 +865,7 @@ class CourseProgress(TimeStampedModel):
     time_spent_minutes = models.PositiveIntegerField(default=0)
     last_accessed = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    notes = models.TextField(blank=True)
+    notes = encrypted_textfield(blank=True)
     
     class Meta:
         app_label = "resources"

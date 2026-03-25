@@ -92,7 +92,7 @@ class CourseProgressService:
     @classmethod
     def get_relevant_resources_queryset(cls, user, course):
         """Return course resources relevant to the student's profile."""
-        queryset = Resource.objects.filter(course=course, status="approved")
+        queryset = Resource.objects.filter(course=course, status="approved", is_deleted=False)
 
         year_of_study = getattr(user, "year_of_study", None)
         if year_of_study not in (None, ""):
@@ -276,12 +276,19 @@ class ResourceDetailService:
             resource=self.resource,
         ).exists()
 
-        # Check if in My Library
-        from apps.resources.models import FolderItem
+        # Check if already saved to personal library
+        from apps.resources.models import FolderItem, PersonalResource
 
-        data["is_in_my_library"] = FolderItem.objects.filter(
-            folder__user=self.user, resource=self.resource
-        ).exists()
+        data["is_in_my_library"] = (
+            PersonalResource.objects.filter(
+                user=self.user,
+                linked_public_resource=self.resource,
+            ).exists()
+            or FolderItem.objects.filter(
+                folder__user=self.user,
+                resource=self.resource,
+            ).exists()
+        )
 
         # Check user rating
         from apps.ratings.models import Rating
@@ -325,7 +332,7 @@ class ResourceDetailService:
 
     def get_related_resources(self, limit: int = 10) -> list:
         """Get related resources based on course, unit, tags, and type."""
-        queryset = Resource.objects.filter(status="approved").exclude(
+        queryset = Resource.objects.filter(status="approved", is_deleted=False).exclude(
             id=self.resource.id
         )
 
@@ -780,18 +787,42 @@ class ResourceReportService:
             "message": "Report submitted. Thank you for helping keep our community safe.",
         }
 
-
 class ResourceUploadService:
     """Service for upload validation and lifecycle operations."""
 
     @staticmethod
+    def _notify_pending_moderation_reviewers(resource: Resource):
+        """Notify admin/moderator users that a resource is waiting for review."""
+        from django.contrib.auth import get_user_model
+
+        from apps.notifications.models import NotificationType
+
+        User = get_user_model()
+        candidates = User.objects.filter(is_active=True).exclude(id=resource.uploaded_by_id)
+        reviewers = [
+            candidate
+            for candidate in candidates
+            if getattr(candidate, "is_admin", False) or getattr(candidate, "is_moderator", False)
+        ]
+
+        for reviewer in reviewers:
+            NotificationService.create_notification(
+                recipient=reviewer,
+                title="New Resource Pending Review",
+                message=f"Resource '{resource.title}' requires moderation review.",
+                notification_type=NotificationType.ADMIN_RESOURCE_PENDING_MODERATION,
+                link=f"/admin/resources/{resource.slug}/change/",
+                target_resource=resource,
+            )
+
+    @staticmethod
     def _auto_publish_defaults() -> dict:
-        """Return the normalized fields for automatically published resources."""
+        """Return the normalized fields for resources awaiting moderation."""
         return {
-            "status": "approved",
-            "is_public": True,
+            "status": "pending",
+            "is_public": False,
             "approved_by": None,
-            "approved_at": timezone.now(),
+            "approved_at": None,
             "rejection_reason": "",
         }
 
@@ -968,7 +999,7 @@ class ResourceUploadService:
     @staticmethod
     @transaction.atomic
     def create_resource_upload(*, user, validated_data, is_mobile=False):
-        """Create a new resource upload and publish it immediately."""
+        """Create a new resource upload in pending moderation state."""
         file_obj = validated_data.get("file")
         computed = ResourceUploadService.validate_resource_upload(
             user=user,
@@ -1000,7 +1031,7 @@ class ResourceUploadService:
         resource = Resource.objects.create(**validated_data)
 
         try:
-            NotificationService.notify_new_resource_available(resource)
+            ResourceUploadService._notify_pending_moderation_reviewers(resource)
         except Exception:
             pass
         UserActivity.objects.create(
@@ -1015,7 +1046,7 @@ class ResourceUploadService:
     @staticmethod
     @transaction.atomic
     def update_resource_upload(*, instance: Resource, user, validated_data):
-        """Update an upload and keep it automatically published."""
+        """Update an upload and route it to pending moderation when required."""
         computed = ResourceUploadService.validate_resource_upload(
             user=user,
             data={
@@ -1066,7 +1097,7 @@ class ResourceUploadService:
 
         if previous_status != "approved" or not previously_public:
             try:
-                NotificationService.notify_new_resource_available(instance)
+                ResourceUploadService._notify_pending_moderation_reviewers(instance)
             except Exception:
                 pass
 
@@ -1075,7 +1106,8 @@ class ResourceUploadService:
     @staticmethod
     def get_user_uploads(user):
         """Return current user's uploads."""
-        return Resource.objects.filter(uploaded_by=user).order_by("-created_at")
+        # Include trashed/archived resources so owners can restore them.
+        return Resource.all_objects.filter(uploaded_by=user).order_by("-created_at")
 
     @staticmethod
     def recalculate_user_upload_counts(user):

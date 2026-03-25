@@ -32,7 +32,7 @@ from .serializers import (LoginSerializer, PasswordChangeSerializer,
                           UserActivitySerializer, UserDetailSerializer,
                           UserPreferenceSerializer, UserRegistrationSerializer,
                           UserSerializer, UserUpdateSerializer)
-from .services import ProfileCompletionService
+from .services import ProfileCompletionService, PasswordlessAuthService
 from .signals import log_user_activity
 from .verification import (EmailVerificationToken, PasswordResetToken,
                            generate_signed_password_reset_token,
@@ -45,7 +45,11 @@ logger = logging.getLogger(__name__)
 
 def _build_frontend_or_api_link(request, frontend_path: str, api_path: str) -> str:
     """Build frontend URL when configured; otherwise fall back to API URL or mobile deep link."""
-    frontend_base = str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    frontend_base = str(
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or ""
+    ).rstrip("/")
     if frontend_base:
         return f"{frontend_base}/{frontend_path.lstrip('/')}"
     
@@ -79,9 +83,13 @@ def _build_password_reset_link(request, token: str) -> str:
     2) Mobile deep-link (campushub://reset-password?token=xxx) - for mobile app
     3) API absolute URL fallback - works as a web URL
     """
-    frontend_base = str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    frontend_base = str(
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or ""
+    ).rstrip("/")
     if frontend_base:
-        return f"{frontend_base}/reset-password/{token}"
+        return f"{frontend_base}/password-reset/{token}"
 
     # Build mobile deep link with token as query parameter
     mobile_link = _build_mobile_deeplink(
@@ -247,7 +255,16 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        payload = request.data.copy()
+        # Backward-compatible aliases used by some legacy clients/tests.
+        if payload.get("password1") and not payload.get("password"):
+            payload["password"] = payload.get("password1")
+        if payload.get("password2") and not payload.get("password_confirm"):
+            payload["password_confirm"] = payload.get("password2")
+        if payload.get("username") and not payload.get("full_name"):
+            payload["full_name"] = payload.get("username")
+
+        serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
@@ -308,7 +325,7 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def post(self, request, **kwargs):
         # Support both email and registration_number
         email = (request.data.get("email") or "").strip().lower()
         registration_number = (request.data.get("registration_number") or "").strip()
@@ -1053,3 +1070,296 @@ class ProfileLinkedAccountUnlinkView(APIView):
         if success:
             return Response({"message": f"{provider} account unlinked."})
         return Response({"detail": "Account not linked."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MagicLinkRequestView(APIView):
+    """Send a short-lived magic login link to the user's email."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="Request magic link", description="Send a magic login link to email")
+    def post(self, request):
+        email = str(request.data.get("email") or "").strip().lower()
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.core.utils import get_client_ip
+
+        result = PasswordlessAuthService.request_magic_link(
+            email=email,
+            ip_address=get_client_ip(request),
+        )
+        if not result["success"]:
+            response_status = (
+                status.HTTP_429_TOO_MANY_REQUESTS
+                if "too many" in result["message"].lower()
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response({"detail": result["message"]}, status=response_status)
+
+        return Response({"detail": result["message"]})
+
+
+class MagicLinkConsumeView(APIView):
+    """Exchange a magic link token for JWT access/refresh."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="Consume magic link", description="Exchange magic link token for JWTs")
+    def post(self, request):
+        token = str(request.data.get("token") or request.query_params.get("token") or "").strip()
+        if not token:
+            return Response({"detail": "token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.core.utils import get_client_ip, get_user_agent
+
+        result = PasswordlessAuthService.consume_magic_link(
+            token=token,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+        )
+        if not result["success"]:
+            return Response({"detail": result["message"]}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.get(id=result["user_id"], is_active=True)
+        user.update_last_login()
+        try:
+            from .services import register_user_session
+
+            register_user_session(user, request, result.get("refresh"))
+        except Exception:
+            logger.exception("Failed to register magic-link session for %s", user.email)
+
+        log_user_activity(user, "login", "User logged in with magic link", request)
+        return Response(
+            {
+                "access": result["access"],
+                "refresh": result["refresh"],
+                "token_type": "magic_link",
+                "message": result["message"],
+                "expires_in": settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==================== Passkey (WebAuthn/FIDO2) Views ====================
+
+
+class PasskeyRegistrationStartView(APIView):
+    """
+    Start passkey registration - get options for the authenticator.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = None
+
+    @extend_schema(
+        summary="Start passkey registration",
+        description="Get options to register a new passkey for the user"
+    )
+    def post(self, request):
+        passkey_name = request.data.get("name", f"Passkey {request.user.email.split('@')[0]}")
+
+        result = PasswordlessAuthService.get_passkey_registration_options(
+            request.user, passkey_name
+        )
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(result["options"], status=status.HTTP_200_OK)
+
+
+class PasskeyRegistrationCompleteView(APIView):
+    """
+    Complete passkey registration - verify and store the credential.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = None
+
+    @extend_schema(
+        summary="Complete passkey registration",
+        description="Verify and store the passkey credential"
+    )
+    def post(self, request):
+        credential_data = request.data.get("credential")
+        if not credential_data:
+            return Response(
+                {"detail": "credential is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        passkey_name = request.data.get("name")
+
+        result = PasswordlessAuthService.verify_passkey_registration(
+            request.user, credential_data, passkey_name
+        )
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "message": "Passkey registered successfully",
+                "passkey_id": result["passkey_id"],
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class PasskeyAuthenticationStartView(APIView):
+    """
+    Start passkey authentication - get options for the authenticator.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = None
+
+    @extend_schema(
+        summary="Start passkey authentication",
+        description="Get options for authenticating with a passkey"
+    )
+    def post(self, request):
+        # Optional user ID if logging in with a specific user's passkeys
+        user_id = request.data.get("user_id")
+
+        user = None
+        if user_id:
+            try:
+                user = User.objects.get(id=user_id, is_active=True)
+            except User.DoesNotExist:
+                pass
+
+        result = PasswordlessAuthService.get_passkey_authentication_options(user)
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(result["options"], status=status.HTTP_200_OK)
+
+
+class PasskeyAuthenticationCompleteView(APIView):
+    """
+    Complete passkey authentication - verify and return JWT tokens.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = None
+
+    @extend_schema(
+        summary="Complete passkey authentication",
+        description="Verify passkey and return JWT tokens"
+    )
+    def post(self, request):
+        credential_data = request.data.get("credential")
+        if not credential_data:
+            return Response(
+                {"detail": "credential is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = PasswordlessAuthService.verify_passkey_authentication(credential_data)
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "access": result["access"],
+                "refresh": result["refresh"],
+                "token_type": "passkey",
+                "user_id": result["user_id"],
+                "expires_in": settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class UserPasskeysView(APIView):
+    """
+    List and manage user's passkeys.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = None
+
+    @extend_schema(
+        summary="List user passkeys",
+        description="Get all passkeys for the current user"
+    )
+    def get(self, request):
+        passkeys = PasswordlessAuthService.list_user_passkeys(request.user)
+        return Response(passkeys, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Delete a passkey",
+        description="Delete a specific passkey"
+    )
+    def delete(self, request):
+        passkey_id = request.data.get("passkey_id")
+        if not passkey_id:
+            return Response(
+                {"detail": "passkey_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = PasswordlessAuthService.delete_user_passkey(
+            request.user, passkey_id
+        )
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response({"message": result["message"]}, status=status.HTTP_200_OK)
+
+
+class PasskeyUpdateView(APIView):
+    """
+    Update passkey details (e.g., name).
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = None
+
+    @extend_schema(
+        summary="Update passkey",
+        description="Update passkey name"
+    )
+    def patch(self, request):
+        passkey_id = request.data.get("passkey_id")
+        new_name = request.data.get("name")
+
+        if not passkey_id or not new_name:
+            return Response(
+                {"detail": "passkey_id and name are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = PasswordlessAuthService.update_passkey_name(
+            request.user, passkey_id, new_name
+        )
+
+        if not result["success"]:
+            return Response(
+                {"detail": result["message"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response({"message": result["message"]}, status=status.HTTP_200_OK)

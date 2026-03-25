@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.db.models import BooleanField, Count, Exists, IntegerField, OuterRef, Subquery, Value
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, status, viewsets
@@ -17,13 +17,13 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.permissions import (AllowAny, IsAuthenticated,
-                                        IsAuthenticatedOrReadOnly)
+                                        IsAuthenticatedOrReadOnly, IsAdminUser)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.authentication import JWTAuthentication
 from apps.bookmarks.services import BookmarkService
-from apps.library.services import move_file_to_trash
+from apps.library.services import move_file_to_trash, save_public_resource_to_library
 from apps.moderation.services import ModerationService
 
 from .filters import ResourceFilter
@@ -50,6 +50,7 @@ from .serializers import (BulkActionSerializer, CourseProgressSerializer,
                           ShareToStudyGroupSerializer, TrendingResourceSerializer,
                           UserStorageSerializer)
 from .services import (ResourceDetailService, ResourceDownloadService,
+                       ResourceBookmarkService,
                        ResourceRatingService, ResourceReportService,
                        ResourceShareService, ResourceUploadService,
                        CourseProgressService)
@@ -65,7 +66,7 @@ from .services import (ResourceDetailService, ResourceDownloadService,
 class ResourceViewSet(viewsets.ModelViewSet):
     """ViewSet for Resource model."""
 
-    queryset = Resource.objects.all()
+    queryset = Resource.objects.filter(is_deleted=False)
     permission_classes = [IsAuthenticatedOrReadOnly]
     lookup_field = "slug"
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -129,10 +130,56 @@ class ResourceViewSet(viewsets.ModelViewSet):
             cache.set(cache_key, response.data, 60)
         return response
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def restore(self, request, slug=None):
+        """Restore a soft-deleted resource."""
+        # Use all_objects to find even trashed records
+        try:
+            resource = Resource.all_objects.get(slug=slug)
+        except Resource.DoesNotExist:
+            raise Http404
+
+        resource.is_deleted = False
+        resource.deleted_at = None
+        # Optionally reactivate status
+        resource.status = "approved"
+        resource.save(update_fields=["is_deleted", "deleted_at", "status"])
+        return Response({"restored": True, "slug": slug})
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="restore-self",
+        permission_classes=[IsAuthenticated],
+    )
+    def restore_self(self, request, slug=None):
+        """
+        Allow the original uploader to restore their own trashed resource.
+
+        This avoids exposing all_objects to regular users while still letting
+        them recover accidental deletes. Restored resources are set back to
+        pending so moderators can review before re-publishing.
+        """
+        resource = Resource.all_objects.filter(
+            slug=slug, uploaded_by=request.user, is_deleted=True
+        ).first()
+        if not resource:
+            raise Http404
+
+        resource.is_deleted = False
+        resource.deleted_at = None
+        resource.status = "pending"
+        resource.save(update_fields=["is_deleted", "deleted_at", "status"])
+        return Response({"restored": True, "status": resource.status})
+
     def get_queryset(self):
         from apps.favorites.models import FavoriteType
+        request_user = getattr(self.request, "user", None)
+        is_authenticated = bool(getattr(request_user, "is_authenticated", False))
+        is_admin = bool(getattr(request_user, "is_admin", False))
+        is_moderator = bool(getattr(request_user, "is_moderator", False))
 
-        queryset = Resource.objects.all().select_related(
+        queryset = Resource.objects.filter(is_deleted=False).select_related(
             "uploaded_by",
             "faculty",
             "department",
@@ -149,19 +196,19 @@ class ResourceViewSet(viewsets.ModelViewSet):
         )
 
         # Filter based on user role
-        if not self.request.user.is_authenticated:
+        if not is_authenticated:
             queryset = queryset.filter(status="approved", is_public=True)
             queryset = queryset.annotate(
                 is_bookmarked=Value(False, output_field=BooleanField()),
                 is_favorited=Value(False, output_field=BooleanField()),
                 user_rating=Value(None, output_field=IntegerField()),
             )
-        elif not (self.request.user.is_admin or self.request.user.is_moderator):
+        elif not (is_admin or is_moderator):
             queryset = queryset.filter(
-                models.Q(status="approved") | models.Q(uploaded_by=self.request.user)
+                models.Q(status="approved") | models.Q(uploaded_by=request_user)
             )
 
-        if self.request.user.is_authenticated:
+        if is_authenticated:
             from apps.bookmarks.models import Bookmark
             from apps.favorites.models import Favorite, FavoriteType
             from apps.ratings.models import Rating
@@ -169,19 +216,19 @@ class ResourceViewSet(viewsets.ModelViewSet):
             queryset = queryset.annotate(
                 is_bookmarked=Exists(
                     Bookmark.objects.filter(
-                        user=self.request.user, resource=OuterRef("pk")
+                        user=request_user, resource=OuterRef("pk")
                     )
                 ),
                 is_favorited=Exists(
                     Favorite.objects.filter(
-                        user=self.request.user,
+                        user=request_user,
                         favorite_type=FavoriteType.RESOURCE,
                         resource=OuterRef("pk"),
                     )
                 ),
                 user_rating=Subquery(
                     Rating.objects.filter(
-                        user=self.request.user, resource=OuterRef("pk")
+                        user=request_user, resource=OuterRef("pk")
                     )
                     .values("value")[:1]
                 ),
@@ -583,7 +630,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def trending(self, request):
         """Get trending resources."""
-        resources = Resource.objects.filter(status="approved").order_by(
+        resources = Resource.objects.filter(status="approved", is_deleted=False).order_by(
             "-download_count", "-view_count", "-average_rating"
         )[:20]
         serializer = TrendingResourceSerializer(resources, many=True)
@@ -600,7 +647,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
             )
 
         resources = (
-            Resource.objects.filter(status="approved", course=user.course)
+            Resource.objects.filter(status="approved", course=user.course, is_deleted=False)
             .exclude(uploaded_by=user)
             .order_by("-average_rating", "-download_count")[:20]
         )
@@ -646,7 +693,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
         resource_ids = serializer.validated_data["resource_ids"]
         action = serializer.validated_data["action"]
 
-        resources = Resource.objects.filter(id__in=resource_ids)
+        resources = Resource.objects.filter(id__in=resource_ids, is_deleted=False)
 
         if action == "delete":
             resources.delete()
@@ -687,7 +734,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def pinned(self, request):
         """Get pinned resources."""
-        resources = Resource.objects.filter(is_pinned=True, status="approved").order_by(
+        resources = Resource.objects.filter(is_pinned=True, status="approved", is_deleted=False).order_by(
             "-created_at"
         )
 
@@ -718,6 +765,19 @@ class ResourceShareLandingView(APIView):
         try:
             resource = Resource.objects.get(slug=slug, status="approved")
         except Resource.DoesNotExist:
+            accept = request.headers.get("Accept", "")
+            wants_html = "text/html" in accept or "*/*" in accept
+            if wants_html:
+                html = """
+                <html><head><title>Link not available</title></head>
+                <body style='font-family: system-ui, -apple-system, sans-serif; padding: 32px; text-align: center;'>
+                    <h2>Link not available</h2>
+                    <p>The shared resource link is invalid or has expired.</p>
+                    <p>You can open CampusHub and request a fresh link from the uploader.</p>
+                </body></html>
+                """
+                return HttpResponse(html, status=status.HTTP_404_NOT_FOUND)
+
             return Response(
                 {"valid": False, "message": "Invalid or unavailable resource link."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -784,7 +844,7 @@ class ResourceListView(generics.ListAPIView):
     ]
 
     def get_queryset(self):
-        queryset = Resource.objects.filter(status="approved")
+        queryset = Resource.objects.filter(status="approved", is_deleted=False)
 
         # Apply filters
         faculty_id = self.request.query_params.get("faculty")
@@ -916,39 +976,116 @@ class FolderViewSet(viewsets.ModelViewSet):
         )
 
 
-class SaveToLibraryView(generics.CreateAPIView):
-    """Save resource to user's library (folder)."""
+class BaseSaveToPersonalLibraryView(generics.CreateAPIView):
+    """Save a public resource to the authenticated user's personal library."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = FolderItemSerializer
+    serializer_class = SaveToLibrarySerializer
 
     def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         resource_id = kwargs.get("resource_id")
+        folder_id = serializer.validated_data.get("folder_id")
+        custom_title = serializer.validated_data.get("title")
 
         try:
-            resource = Resource.objects.get(id=resource_id)
+            resource = Resource.objects.get(
+                id=resource_id,
+                status="approved",
+                is_public=True,
+            )
         except Resource.DoesNotExist:
             return Response(
                 {"detail": "Resource not found."}, status=status.HTTP_404_NOT_FOUND
             )
 
-        # Get or create default "My Library" folder
-        library, created = Folder.objects.get_or_create(
-            user=request.user, name="My Library", defaults={"color": "#10b981"}
-        )
+        folder = None
+        if folder_id:
+            try:
+                folder = PersonalFolder.objects.get(id=folder_id, user=request.user)
+            except PersonalFolder.DoesNotExist:
+                return Response(
+                    {"detail": "Folder not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        item, item_created = FolderItem.objects.get_or_create(
-            folder=library, resource=resource
-        )
-
-        if item_created:
-            return Response(
-                {"message": "Resource saved to library."},
-                status=status.HTTP_201_CREATED,
+        try:
+            personal_resource, created, target_folder = save_public_resource_to_library(
+                user=request.user,
+                resource=resource,
+                folder=folder,
+                title=custom_title,
             )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = {
+            "item": PersonalResourceSerializer(
+                personal_resource,
+                context=self.get_serializer_context(),
+            ).data,
+            "already_saved": not created,
+            "folder": (
+                PersonalFolderSerializer(
+                    target_folder,
+                    context=self.get_serializer_context(),
+                ).data
+                if target_folder
+                else None
+            ),
+            "message": (
+                "Resource added to library."
+                if created
+                else "Resource already exists in your library."
+            ),
+        }
         return Response(
-            {"message": "Resource already in library."},
-            status=status.HTTP_400_BAD_REQUEST,
+            payload,
+            status=(
+                status.HTTP_201_CREATED if created else status.HTTP_200_OK
+            ),
+        )
+
+
+class SaveToLibraryView(BaseSaveToPersonalLibraryView):
+    """Legacy save-to-library endpoint backed by shared Folder/FolderItem models."""
+
+    def create(self, request, *args, **kwargs):
+        resource_id = kwargs.get("resource_id")
+        folder_id = request.data.get("folder_id")
+
+        try:
+            resource = Resource.objects.get(
+                id=resource_id,
+                status="approved",
+                is_public=True,
+            )
+        except Resource.DoesNotExist:
+            return Response(
+                {"detail": "Resource not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        result = ResourceBookmarkService(resource, request.user).add_to_library(
+            folder_id=folder_id
+        )
+        if not result.get("success"):
+            error_message = result.get("message") or "Unable to save resource."
+            error_status = (
+                status.HTTP_404_NOT_FOUND
+                if error_message == "Folder not found."
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response({"detail": error_message}, status=error_status)
+
+        return Response(
+            {
+                "message": result.get("message", "Resource added to library."),
+                "folder_id": result.get("folder_id"),
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
@@ -1087,7 +1224,7 @@ class PersonalResourceViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return PersonalResource.objects.none()
-        return PersonalResource.objects.filter(user=self.request.user)
+        return PersonalResource.objects.filter(user=self.request.user, is_deleted=False)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -1212,63 +1349,59 @@ class PersonalResourceViewSet(viewsets.ModelViewSet):
         )
 
 
-class SaveToPersonalLibraryView(generics.CreateAPIView):
+class SaveToPersonalLibraryView(BaseSaveToPersonalLibraryView):
     """Save a public resource to personal library."""
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = SaveToLibrarySerializer
-
     def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         resource_id = kwargs.get("resource_id")
-        folder_id = request.data.get("folder_id")
-        custom_title = request.data.get("title")
+        folder_id = serializer.validated_data.get("folder_id")
+        custom_title = serializer.validated_data.get("title")
 
         try:
-            resource = Resource.objects.get(id=resource_id)
+            resource = Resource.objects.get(
+                id=resource_id,
+                status="approved",
+                is_public=True,
+            )
         except Resource.DoesNotExist:
             return Response(
-                {"detail": "Resource not found."}, status=status.HTTP_404_NOT_FOUND
+                {"detail": "Resource not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Get folder if provided
         folder = None
         if folder_id:
             try:
                 folder = PersonalFolder.objects.get(id=folder_id, user=request.user)
             except PersonalFolder.DoesNotExist:
                 return Response(
-                    {"detail": "Folder not found."}, status=status.HTTP_404_NOT_FOUND
+                    {"detail": "Folder not found."},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
-        # Check if already saved
-        existing = PersonalResource.objects.filter(
-            user=request.user, linked_public_resource=resource
-        ).first()
+        try:
+            personal_resource, created, _ = save_public_resource_to_library(
+                user=request.user,
+                resource=resource,
+                folder=folder,
+                title=custom_title,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        if existing:
+        if not created:
             return Response(
-                {"detail": "Resource already in your library.", "id": str(existing.id)},
+                {"detail": "Resource already exists in your library."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create personal resource
-        personal_resource = PersonalResource.objects.create(
-            user=request.user,
-            folder=folder,
-            title=custom_title or resource.title,
-            file=resource.file,
-            file_type=resource.file_type,
-            file_size=resource.file_size,
-            description=resource.description,
-            tags=resource.tags,
-            visibility="private",
-            source_type="saved",
-            linked_public_resource=resource,
-        )
-
         return Response(
             PersonalResourceSerializer(
-                personal_resource, context=self.get_serializer_context()
+                personal_resource,
+                context=self.get_serializer_context(),
             ).data,
             status=status.HTTP_201_CREATED,
         )

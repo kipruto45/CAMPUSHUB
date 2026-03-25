@@ -416,7 +416,7 @@ def _serve_or_redirect_file(request, storage, path, metadata, *, signed: bool):
 
 @api_view(['GET', 'HEAD'])
 @permission_classes([AllowAny])
-def serve_public_file(request, path):
+def serve_public_file(request, path, *args, **kwargs):
     """
     Serve a public file directly for local storage or redirect for remote storage.
     
@@ -464,7 +464,7 @@ def serve_public_file(request, path):
 
 @api_view(['GET', 'HEAD'])
 @permission_classes([IsAuthenticated])
-def serve_private_file(request, path):
+def serve_private_file(request, path, *args, **kwargs):
     """
     Serve a private file directly for local storage or redirect for remote storage.
     
@@ -509,7 +509,7 @@ def serve_private_file(request, path):
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
-def get_signed_url(request):
+def get_signed_url(request, *args, **kwargs):
     """
     Generate signed URL for private file.
     
@@ -577,7 +577,7 @@ def get_signed_url(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def check_storage_quota(request):
+def check_storage_quota(request, *args, **kwargs):
     """
     Check user's storage quota.
     
@@ -589,7 +589,7 @@ def check_storage_quota(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def validate_upload(request):
+def validate_upload(request, *args, **kwargs):
     """
     Validate if user can upload file.
     
@@ -622,7 +622,7 @@ def validate_upload(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def initiate_upload(request):
+def initiate_upload(request, *args, **kwargs):
     """
     Initiate multipart upload.
     
@@ -711,7 +711,7 @@ def initiate_upload(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def complete_upload(request):
+def complete_upload(request, *args, **kwargs):
     """
     Complete multipart upload.
     
@@ -814,7 +814,7 @@ def complete_upload(request):
 @api_view(["POST"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
-def request_storage_upgrade(request):
+def request_storage_upgrade(request, *args, **kwargs):
     """Create a storage upgrade request for the current user."""
     serializer = StorageUpgradeRequestCreateSerializer(data=request.data)
     if not serializer.is_valid():

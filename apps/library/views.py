@@ -83,7 +83,7 @@ class LibraryOverviewView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         overview = get_library_overview(request.user)
         serializer = LibraryOverviewSerializer(overview)
         return Response(serializer.data)
@@ -101,7 +101,7 @@ class StorageSummaryView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         summary = get_storage_summary(request.user)
         serializer = StorageSummarySerializer(summary)
         return Response(serializer.data)
@@ -210,7 +210,7 @@ class MoveFolderView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, folder_id):
+    def post(self, request, folder_id, *args, **kwargs):
         serializer = MoveFolderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -245,7 +245,7 @@ class FavoriteFolderView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, folder_id):
+    def post(self, request, folder_id, *args, **kwargs):
         folder = get_folder_by_id(request.user, folder_id)
         if not folder:
             return Response(
@@ -264,7 +264,7 @@ class AllFoldersView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         folders = get_all_user_folders(request.user)
         serializer = PersonalFolderSerializer(folders, many=True)
         return Response(serializer.data)
@@ -358,7 +358,7 @@ class MoveFileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, file_id):
+    def post(self, request, file_id, *args, **kwargs):
         serializer = MoveFileSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -393,7 +393,7 @@ class DuplicateFileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, file_id):
+    def post(self, request, file_id, *args, **kwargs):
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
             return Response(
@@ -415,7 +415,7 @@ class FavoriteFileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, file_id):
+    def post(self, request, file_id, *args, **kwargs):
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
             return Response(
@@ -440,7 +440,7 @@ class SharedLibraryFileView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def get(self, request, file_id, token):
+    def get(self, request, file_id, token, *args, **kwargs):
         file_obj = get_shareable_file(file_id, token)
         if not file_obj or file_obj.is_deleted:
             return Response(
@@ -473,7 +473,7 @@ class ShareFileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, file_id):
+    def get(self, request, file_id, *args, **kwargs):
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
             return Response(
@@ -492,7 +492,7 @@ class ShareFileView(APIView):
         serializer = FileShareSerializer(share_data, context={"request": request})
         return Response(serializer.data)
 
-    def post(self, request, file_id):
+    def post(self, request, file_id, *args, **kwargs):
         """Record a share action."""
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
@@ -514,7 +514,7 @@ class FileDownloadView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, file_id):
+    def get(self, request, file_id, *args, **kwargs):
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
             return Response(
@@ -544,7 +544,7 @@ class FilePreviewView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, file_id):
+    def get(self, request, file_id, *args, **kwargs):
         file_obj = get_file_by_id(request.user, file_id)
         if not file_obj:
             return Response(
@@ -572,7 +572,7 @@ class RecentFilesView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         limit = int(request.query_params.get("limit", 10))
         files = get_recent_files(request.user, limit=limit)
         serializer = PersonalResourceSerializer(files, many=True)
@@ -586,7 +586,7 @@ class FavoriteFilesView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         files = get_favorite_files(request.user)
         serializer = PersonalResourceSerializer(files, many=True)
         return Response(serializer.data)
@@ -599,7 +599,7 @@ class FavoriteFoldersView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         folders = get_favorite_folders(request.user)
         serializer = PersonalFolderSerializer(folders, many=True)
         return Response(serializer.data)
@@ -617,7 +617,7 @@ class TrashListView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         trash_items = get_user_trash_items(request.user)
         serializer = TrashItemSerializer(
             trash_items, many=True, context={"request": request}
@@ -632,7 +632,7 @@ class MoveFileToTrashView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         serializer = MoveToTrashSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -667,7 +667,7 @@ class RestoreFileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         serializer = RestoreFileSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -700,7 +700,7 @@ class PermanentDeleteView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         serializer = PermanentDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -733,7 +733,7 @@ class PermanentDeleteView(APIView):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def restore_file_by_id(request, file_id):
+def restore_file_by_id(request, file_id, *args, **kwargs):
     """Restore a trashed file by ID."""
     try:
         file_obj = PersonalResource.all_objects.get(
@@ -757,7 +757,7 @@ def restore_file_by_id(request, file_id):
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
-def permanent_delete_by_id(request, file_id):
+def permanent_delete_by_id(request, file_id, *args, **kwargs):
     """Permanently delete a trashed file by ID."""
     try:
         file_obj = PersonalResource.all_objects.get(

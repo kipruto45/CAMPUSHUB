@@ -16,6 +16,8 @@ psycopg2-binary>=2.9,<3.0
 # Authentication
 pyotp>=2.9,<3.0
 qrcode>=7.4,<8.0
+fido2>=1.1,<2.0
+cryptography>=41.0,<42.0
 
 # GraphQL
 graphene>=3.3,<4.0
@@ -53,6 +55,9 @@ cryptography>=41.0,<42.0
 
 gunicorn>=21.0,<22.0
 whitenoise>=6.5,<7.0
+
+# PDF Generation (for payment receipts)
+reportlab>=4.0,<5.0
 
 # Social Authentication
 django-allauth>=0.61,<1.0

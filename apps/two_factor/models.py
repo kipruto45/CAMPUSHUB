@@ -9,10 +9,13 @@ from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 
+from apps.core.encryption import (EncryptedFieldMixin, encrypted_charfield,
+                                  encrypted_jsonfield)
+
 User = get_user_model()
 
 
-class TwoFactorSetting(models.Model):
+class TwoFactorSetting(EncryptedFieldMixin, models.Model):
     """
     Stores 2FA settings for users.
     """
@@ -28,8 +31,8 @@ class TwoFactorSetting(models.Model):
     )
     enabled = models.BooleanField(default=False)
     method = models.CharField(max_length=10, choices=METHOD_CHOICES, default="totp")
-    totp_secret = models.CharField(max_length=32, blank=True)
-    backup_codes = models.JSONField(default=list, blank=True)
+    totp_secret = encrypted_charfield(max_length=128, blank=True)
+    backup_codes = encrypted_jsonfield(default=list, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -89,7 +92,7 @@ class TwoFactorSetting(models.Model):
         self.save()
 
 
-class TwoFactorVerification(models.Model):
+class TwoFactorVerification(EncryptedFieldMixin, models.Model):
     """
     Stores pending 2FA verification attempts.
     """
@@ -104,7 +107,7 @@ class TwoFactorVerification(models.Model):
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="two_factor_verifications"
     )
-    code = models.CharField(max_length=10)
+    code = encrypted_charfield(max_length=32)
     method = models.CharField(max_length=10)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     ip_address = models.GenericIPAddressField(null=True, blank=True)

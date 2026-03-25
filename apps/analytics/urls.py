@@ -4,17 +4,27 @@ URL configuration for analytics app.
 
 from django.urls import path
 
-from .views import (ContentTrendsView, DashboardView, DownloadTrendsView,
-                    DownloadsChartView, MostActiveUploadersView,
-                    MostDownloadedResourcesView, PlatformHealthView,
-                    ResourceAnalyticsView, ResourcesByCourseView,
-                    ResourceTypesChartView, TopContributorsView, UploadTrendsView,
+from .views import (ContentTrendsView, DashboardView,
+                    DownloadTrendsView, DownloadsChartView,
+                    MostActiveUploadersView, MostDownloadedResourcesView,
+                    PlatformHealthView, ResourceAnalyticsView,
+                    ResourcesByCourseView, ResourceTypesChartView,
+                    TopContributorsView, UploadTrendsView,
                     UserActivityHeatmapView, UserActivitySummaryView,
-                    UserDemographicsView, UserEngagementScoreView)
+                    UserDemographicsView, UserEngagementScoreView,
+                    AdminDashboardStatsView,
+                    EventIngestView, EventAnalyticsView,
+                    AtRiskStudentsView, StudentRiskHistoryView, ManualRiskAssessmentView,
+                    AtRiskSummaryView)
 
 app_name = "analytics"
 
 urlpatterns = [
+    # Event tracking (public endpoints for client-side analytics)
+    path("track/", EventIngestView.as_view(), name="track-event"),
+    path("ingest/", EventIngestView.as_view(), name="event-ingest"),
+    
+    # Dashboard
     path("dashboard/", DashboardView.as_view(), name="dashboard"),
     path(
         "user/activity-summary/",
@@ -59,4 +69,14 @@ urlpatterns = [
     ),
     path("upload-trends/", UploadTrendsView.as_view(), name="upload-trends"),
     path("download-trends/", DownloadTrendsView.as_view(), name="download-trends"),
+    path("events/", EventAnalyticsView.as_view(), name="event-analytics"),
+    
+    # Admin stats
+    path("admin/stats/", AdminDashboardStatsView.as_view(), name="admin-stats"),
+    
+    # At-risk student endpoints
+    path("at-risk/students/", AtRiskStudentsView.as_view(), name="at-risk-students"),
+    path("at-risk/summary/", AtRiskSummaryView.as_view(), name="at-risk-summary"),
+    path("at-risk/history/", StudentRiskHistoryView.as_view(), name="student-risk-history"),
+    path("at-risk/assess/", ManualRiskAssessmentView.as_view(), name="manual-risk-assessment"),
 ]

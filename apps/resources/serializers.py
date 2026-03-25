@@ -7,6 +7,7 @@ from typing import Any, Optional
 from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
+from apps.library.services import get_default_resource_type_folder_name
 
 from .models import (CourseProgress, Folder, FolderItem, PersonalFolder,
                      PersonalResource, Resource, ResourceFile,
@@ -667,11 +668,13 @@ class MyUploadListSerializer(serializers.ModelSerializer):
 
     file_url = serializers.SerializerMethodField()
     rejection_reason = serializers.SerializerMethodField()
+    is_deleted = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Resource
         fields = [
             "id",
+            "slug",
             "title",
             "resource_type",
             "status",
@@ -679,6 +682,8 @@ class MyUploadListSerializer(serializers.ModelSerializer):
             "file_size",
             "file_type",
             "rejection_reason",
+            "is_deleted",
+            "deleted_at",
             "created_at",
             "updated_at",
         ]
@@ -1089,6 +1094,7 @@ class ResourceDetailSerializer(serializers.ModelSerializer):
     is_bookmarked = serializers.SerializerMethodField()
     is_favorited = serializers.SerializerMethodField()
     is_in_my_library = serializers.SerializerMethodField()
+    default_library_folder_name = serializers.SerializerMethodField()
     user_rating = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
@@ -1147,6 +1153,7 @@ class ResourceDetailSerializer(serializers.ModelSerializer):
             "is_bookmarked",
             "is_favorited",
             "is_in_my_library",
+            "default_library_folder_name",
             "user_rating",
             "can_edit",
             "can_delete",
@@ -1213,14 +1220,10 @@ class ResourceDetailSerializer(serializers.ModelSerializer):
         return False
 
     def get_is_in_my_library(self, obj) -> bool:
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            from apps.resources.models import FolderItem
+        return self._get_saved_library_item(obj) is not None
 
-            return FolderItem.objects.filter(
-                folder__user=request.user, resource=obj
-            ).exists()
-        return False
+    def get_default_library_folder_name(self, obj) -> str:
+        return get_default_resource_type_folder_name(obj.resource_type)
 
     def get_user_rating(self, obj) -> int | None:
         request = self.context.get("request")
@@ -1297,6 +1300,17 @@ class ResourceDetailSerializer(serializers.ModelSerializer):
         related = service.get_related_resources(limit=5)
 
         return RelatedResourceSerializer(related, many=True, context=self.context).data
+
+    def _get_saved_library_item(self, obj) -> PersonalResource | None:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+
+        return (
+            PersonalResource.objects.select_related("folder")
+            .filter(user=request.user, linked_public_resource=obj)
+            .first()
+        )
 
 
 class ResourceActionSerializer(serializers.Serializer):

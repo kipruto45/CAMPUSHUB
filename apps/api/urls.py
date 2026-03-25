@@ -6,6 +6,7 @@ from django.conf import settings
 from django.urls import path
 
 from . import deeplinks, mobile_views
+from apps.referrals import views as referral_views
 
 app_name = "api"
 
@@ -81,10 +82,26 @@ def api_info(request):
                     "parse": "/api/mobile/deeplink/parse/",
                     "build": "/api/mobile/deeplink/build/",
                 },
+                "download": {
+                    "config": "/api/mobile/download/config/",
+                },
                 "device": {
                     "register": "/api/mobile/device/register/",
                     "subscribe_topic": "/api/mobile/topic/subscribe/",
                     "unsubscribe_topic": "/api/mobile/topic/unsubscribe/",
+                },
+                "gestures": {
+                    "settings": "/api/mobile/gestures/settings/",
+                    "actions": "/api/mobile/gestures/actions/",
+                    "mappings": "/api/mobile/gestures/mappings/",
+                    "custom": "/api/mobile/gestures/custom/",
+                    "analytics": "/api/mobile/gestures/analytics/",
+                },
+                "haptics": {
+                    "settings": "/api/mobile/haptics/settings/",
+                    "patterns": "/api/mobile/haptics/patterns/",
+                    "custom": "/api/mobile/haptics/custom/",
+                    "mappings": "/api/mobile/haptics/mappings/",
                 },
             },
             "websocket": {
@@ -248,6 +265,11 @@ urlpatterns = [
         mobile_views.mobile_library_folders,
         name="mobile_library_folders",
     ),
+    path(
+        "mobile/download/config/",
+        mobile_views.mobile_download_config,
+        name="mobile_download_config",
+    ),
     # Stats
     path("mobile/stats/", mobile_views.mobile_stats, name="mobile_stats"),
     # Topic subscription
@@ -299,5 +321,100 @@ urlpatterns = [
         "mobile/deeplink/build/",
         deeplinks.build_deep_link_view,
         name="mobile_deeplink_build",
+    ),
+    # Home screen widgets
+    path(
+        "mobile/widgets/",
+        mobile_views.mobile_widget_data,
+        name="mobile_widget_data",
+    ),
+    path(
+        "mobile/widgets/refresh/",
+        mobile_views.mobile_widget_refresh,
+        name="mobile_widget_refresh",
+    ),
+    # Lottie animations
+    path(
+        "mobile/animations/",
+        mobile_views.mobile_animation,
+        name="mobile_animation",
+    ),
+    # Referrals
+    path(
+        "referrals/code/",
+        referral_views.get_referral_code,
+        name="referral_code",
+    ),
+    path(
+        "referrals/stats/",
+        referral_views.get_referral_stats,
+        name="referral_stats",
+    ),
+    path(
+        "referrals/list/",
+        referral_views.get_referrals_list,
+        name="referrals_list",
+    ),
+    path(
+        "referrals/use/",
+        referral_views.use_referral_code,
+        name="use_referral_code",
+    ),
+    path(
+        "referrals/rewards/",
+        referral_views.get_reward_history,
+        name="reward_history",
+    ),
+    path(
+        "referrals/claim/",
+        referral_views.claim_referral_rewards,
+        name="claim_rewards",
+    ),
+    # Gesture API
+    path(
+        "mobile/gestures/settings/",
+        mobile_views.mobile_gesture_settings,
+        name="mobile_gesture_settings",
+    ),
+    path(
+        "mobile/gestures/actions/",
+        mobile_views.mobile_swipe_actions,
+        name="mobile_swipe_actions",
+    ),
+    path(
+        "mobile/gestures/mappings/",
+        mobile_views.mobile_user_swipe_mappings,
+        name="mobile_user_swipe_mappings",
+    ),
+    path(
+        "mobile/gestures/custom/",
+        mobile_views.mobile_custom_gestures,
+        name="mobile_custom_gestures",
+    ),
+    path(
+        "mobile/gestures/analytics/",
+        mobile_views.mobile_gesture_analytics,
+        name="mobile_gesture_analytics",
+    ),
+    # Haptic Feedback API
+    path(
+        "mobile/haptics/settings/",
+        mobile_views.mobile_haptic_settings,
+        name="mobile_haptic_settings",
+    ),
+    path(
+        "mobile/haptics/patterns/",
+        mobile_views.mobile_haptic_patterns,
+        name="mobile_haptic_patterns",
+    ),
+    path(
+        "mobile/haptics/custom/",
+        mobile_views.mobile_custom_haptic_patterns,
+        name="mobile_custom_haptic_patterns",
+    ),
+    path(
+        "mobile/haptics/mappings/",
+        mobile_views.mobile_haptic_mappings,
+        name="mobile_haptic_mappings",
     ),
 ]

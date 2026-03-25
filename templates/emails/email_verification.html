@@ -70,7 +70,7 @@
             <p>Thank you for signing up for <strong>{{ site_name }}</strong>. Please verify your email address by clicking the button below:</p>
             
             <center>
-                <a href="{{ verify_url }}" class="btn">Verify Email Address</a>
+                <a href="{{ verify_url|default:'#' }}" class="btn">Verify Email Address</a>
             </center>
             
             <p>If the button doesn't work, copy and paste this link into your browser:</p>
@@ -89,7 +89,7 @@
             <p>Best regards,<br><strong>The {{ site_name }} Team</strong></p>
         </div>
         <div class="footer">
-            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p>© 2026 {{ site_name }}. All rights reserved.</p>
         </div>
     </div>
 </body>

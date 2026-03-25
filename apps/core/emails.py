@@ -285,12 +285,16 @@ class ResourceEmailService:
         Returns:
             True if email was sent
         """
+        frontend_url = get_frontend_base_url()
+        upload_url = f"{frontend_url}/upload-resource"
+        
         return EmailService.send_template_email(
             template_name="resource_rejected",
             context={
                 "user": user,
                 "resource": resource,
                 "reason": reason,
+                "upload_url": upload_url,
                 "site_name": settings.SITE_NAME,
             },
             subject="Your Resource Has Been Rejected",

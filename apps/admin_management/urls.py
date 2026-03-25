@@ -12,6 +12,36 @@ urlpatterns = [
     path("stats/", views.AdminStatsView.as_view(), name="stats"),
     path("search/", views.AdminGlobalSearchView.as_view(), name="global-search"),
     path("system-health/", views.AdminSystemHealthView.as_view(), name="system-health"),
+    path(
+        "users/invitations/",
+        views.AdminRoleInvitationListCreateView.as_view(),
+        name="role-invitation-list",
+    ),
+    path(
+        "users/invitations/options/",
+        views.AdminInvitationRoleOptionsView.as_view(),
+        name="role-invitation-options",
+    ),
+    path(
+        "users/invitations/bulk/",
+        views.AdminRoleInvitationBulkCreateView.as_view(),
+        name="role-invitation-bulk",
+    ),
+    path(
+        "users/invitations/validate/<str:token>/",
+        views.AdminRoleInvitationValidateView.as_view(),
+        name="role-invitation-validate",
+    ),
+    path(
+        "users/invitations/accept/",
+        views.AdminRoleInvitationAcceptView.as_view(),
+        name="role-invitation-accept",
+    ),
+    path(
+        "users/invitations/<uuid:invitation_id>/revoke/",
+        views.AdminRoleInvitationRevokeView.as_view(),
+        name="role-invitation-revoke",
+    ),
     path("users/", views.AdminUserListView.as_view(), name="user-list"),
     path(
         "users/<int:user_id>/", views.AdminUserDetailView.as_view(), name="user-detail"
@@ -30,6 +60,11 @@ urlpatterns = [
         "users/<int:user_id>/role/",
         views.AdminUserRoleUpdateView.as_view(),
         name="user-role",
+    ),
+    path(
+        "users/<int:user_id>/impersonate/",
+        views.AdminUserImpersonateView.as_view(),
+        name="user-impersonate",
     ),
     path("resources/", views.AdminResourceListView.as_view(), name="resource-list"),
     path(

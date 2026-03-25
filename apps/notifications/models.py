@@ -41,6 +41,13 @@ class NotificationType:
     ADMIN_API_THRESHOLD_WARNING = "admin_api_threshold_warning"
     ADMIN_STORAGE_WARNING = "admin_storage_warning"
     ADMIN_PERFORMANCE_ALERT = "admin_performance_alert"
+    
+    # At-risk student notifications
+    STUDENT_AT_RISK = "student_at_risk"
+    STUDENT_RISK_INCREASED = "student_risk_increased"
+    STUDENT_RISK_CRITICAL = "student_risk_critical"
+    ADVISOR_STUDENT_AT_RISK = "advisor_student_at_risk"
+    INSTRUCTOR_STUDENT_AT_RISK = "instructor_student_at_risk"
 
     CHOICES = [
         (RESOURCE_APPROVED, "Resource Approved"),
@@ -71,6 +78,13 @@ class NotificationType:
         (ADMIN_API_THRESHOLD_WARNING, "Admin: API Threshold Warning"),
         (ADMIN_STORAGE_WARNING, "Admin: Storage Warning"),
         (ADMIN_PERFORMANCE_ALERT, "Admin: Performance Alert"),
+    
+    # At-risk student notification types
+    (STUDENT_AT_RISK, "Student At Risk"),
+    (STUDENT_RISK_INCREASED, "Student Risk Increased"),
+    (STUDENT_RISK_CRITICAL, "Student Risk Critical"),
+    (ADVISOR_STUDENT_AT_RISK, "Advisor: Student At Risk"),
+    (INSTRUCTOR_STUDENT_AT_RISK, "Instructor: Student At Risk"),
     ]
 
 

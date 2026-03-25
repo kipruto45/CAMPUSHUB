@@ -109,25 +109,38 @@ class DeepLinkParser:
             DeepLink object if valid, None otherwise
         """
         import re
+        from urllib.parse import urlparse
 
         scheme_host = cls._scheme_host()
         web_host = cls._web_host()
 
+        parsed_url = urlparse(url or "")
+        scheme = (parsed_url.scheme or "").lower()
+
         # Handle custom URL scheme: campushub://path
-        if url.startswith(f"{scheme_host}://"):
-            path = url.replace(f"{scheme_host}://", "")
+        if scheme == scheme_host:
+            path = f"{parsed_url.netloc}{parsed_url.path}"
+            if parsed_url.query:
+                path = f"{path}?{parsed_url.query}"
 
-        # Handle HTTPS links: https://campushub.com/path
-        elif url.startswith("https://"):
-            path = url.replace(f"https://{web_host}/", "")
-            if path == url:  # Not a campushub URL
+        # Handle universal/app links over HTTP(S).
+        elif scheme in {"https", "http"}:
+            host = (parsed_url.netloc or "").split(":", 1)[0].lower()
+            normalized_host = host[4:] if host.startswith("www.") else host
+            configured_host = str(web_host or "").lower()
+            configured_host = (
+                configured_host[4:] if configured_host.startswith("www.") else configured_host
+            )
+            allowed_hosts = {
+                configured_host,
+                cls.WEB_HOST.lower(),
+            }
+            if normalized_host not in allowed_hosts:
                 return None
 
-        # Handle HTTP links
-        elif url.startswith("http://"):
-            path = url.replace(f"http://{web_host}/", "")
-            if path == url:  # Not a campushub URL
-                return None
+            path = parsed_url.path.lstrip("/")
+            if parsed_url.query:
+                path = f"{path}?{parsed_url.query}"
         else:
             return None
 
@@ -395,7 +408,7 @@ def assetlinks_json_view(request):
 
 
 def apple_app_site_association_view(request):
-    """Serve iOS Universal Links association file."""
+    """Serve iOS Universal Links and App Clips association file."""
     from django.conf import settings
     from django.http import JsonResponse
 
@@ -406,6 +419,10 @@ def apple_app_site_association_view(request):
         settings, "APNS_BUNDLE_ID", ""
     )
     app_id = f"{team_id}.{bundle_id}" if team_id and bundle_id else ""
+    
+    # App clip bundle ID
+    app_clip_bundle_id = getattr(settings, "IOS_APP_CLIP_BUNDLE_ID", f"{bundle_id}.clip" if bundle_id else "")
+    app_clip_id = f"{team_id}.{app_clip_bundle_id}" if team_id and app_clip_bundle_id else ""
 
     details = []
     if app_id:
@@ -419,6 +436,19 @@ def apple_app_site_association_view(request):
                     "/announcements/*",
                     "/profile/*",
                     "/search*",
+                ],
+            }
+        )
+    
+    # Add app clip details if configured
+    if app_clip_id:
+        details.append(
+            {
+                "appID": app_clip_id,
+                "paths": [
+                    "/clip/resources/*",
+                    "/clip/announcements/*",
+                    "/clip/search/*",
                 ],
             }
         )

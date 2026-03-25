@@ -52,6 +52,16 @@ ALLOWED_FILE_EXTENSIONS = [
     "mkv",
 ]
 
+RESOURCE_TYPE_LIBRARY_FOLDERS = {
+    "notes": {"name": "Notes", "color": "#3b82f6"},
+    "past_paper": {"name": "Past Papers", "color": "#f59e0b"},
+    "assignment": {"name": "Assignments", "color": "#ef4444"},
+    "book": {"name": "Books", "color": "#10b981"},
+    "slides": {"name": "Slides", "color": "#06b6d4"},
+    "tutorial": {"name": "Tutorials", "color": "#8b5cf6"},
+    "other": {"name": "Other", "color": "#6b7280"},
+}
+
 
 # =============================================================================
 # STORAGE SERVICE
@@ -153,6 +163,86 @@ def get_folder_storage(user, folder):
         or 0
     )
     return total_size
+
+
+def get_default_resource_type_folder_name(resource_type: str | None) -> str:
+    """
+    Resolve the default personal-library folder name for a resource type.
+    """
+    return RESOURCE_TYPE_LIBRARY_FOLDERS.get(
+        resource_type or "other",
+        RESOURCE_TYPE_LIBRARY_FOLDERS["other"],
+    )["name"]
+
+
+def get_or_create_resource_type_folder(user, resource):
+    """
+    Get or create a top-level personal folder for the resource type.
+    """
+    config = RESOURCE_TYPE_LIBRARY_FOLDERS.get(
+        getattr(resource, "resource_type", None) or "other",
+        RESOURCE_TYPE_LIBRARY_FOLDERS["other"],
+    )
+    folder = PersonalFolder.objects.filter(
+        user=user,
+        parent__isnull=True,
+        name__iexact=config["name"],
+    ).first()
+    if folder:
+        return folder, False
+
+    folder = PersonalFolder.objects.create(
+        user=user,
+        name=config["name"],
+        color=config["color"],
+    )
+    return folder, True
+
+
+def save_public_resource_to_library(user, resource, folder=None, title=None):
+    """
+    Save an approved public resource into the user's personal library.
+
+    When no destination folder is provided, the resource is routed into a
+    top-level folder derived from its resource type.
+    """
+    if resource.status != "approved" or not resource.is_public:
+        raise ValueError("Only approved public resources can be added to your library.")
+
+    if not resource.file:
+        raise ValueError("Resource file is not available.")
+
+    auto_assign_folder = folder is None
+    if auto_assign_folder:
+        folder, _ = get_or_create_resource_type_folder(user, resource)
+    elif folder.user_id != user.id:
+        raise ValueError("Folder not found.")
+
+    existing = (
+        PersonalResource.objects.select_related("folder")
+        .filter(user=user, linked_public_resource=resource)
+        .first()
+    )
+    if existing:
+        if auto_assign_folder and existing.folder_id is None and folder is not None:
+            existing.folder = folder
+            existing.save(update_fields=["folder"])
+        return existing, False, existing.folder or folder
+
+    personal_resource = PersonalResource.objects.create(
+        user=user,
+        folder=folder,
+        title=title or resource.title,
+        file=resource.file,
+        file_type=resource.file_type,
+        file_size=resource.file_size,
+        description=resource.description,
+        tags=resource.tags,
+        visibility="private",
+        source_type="saved",
+        linked_public_resource=resource,
+    )
+    return personal_resource, True, folder
 
 
 # =============================================================================

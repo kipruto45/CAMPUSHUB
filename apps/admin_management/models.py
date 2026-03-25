@@ -2,6 +2,8 @@
 Content Calendar - Schedule and manage content publishing.
 """
 
+import secrets
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -201,3 +203,357 @@ class CalendarTemplate(models.Model):
                 break
         
         return ContentCalendarEvent.objects.bulk_create(events)
+
+
+class AdminInvitationRole(models.Model):
+    """Admin-managed role catalog for invitations and permission presets."""
+
+    ROLE_CHOICES = [
+        ("STUDENT", "Student"),
+        ("INSTRUCTOR", "Instructor"),
+        ("DEPARTMENT_HEAD", "Department Head"),
+        ("SUPPORT_STAFF", "Support Staff"),
+        ("MODERATOR", "Moderator"),
+        ("ADMIN", "Admin"),
+    ]
+
+    code = models.CharField(max_length=20, unique=True, choices=ROLE_CHOICES)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    is_assignable = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=100)
+    requires_superuser = models.BooleanField(default=False)
+    inviter_permissions = models.JSONField(default=list, blank=True)
+    permission_preset = models.JSONField(default=list, blank=True)
+    email_subject_template = models.CharField(max_length=255, blank=True)
+    email_body_template = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "admin_management"
+        db_table = "admin_invitation_roles"
+        ordering = ["sort_order", "name"]
+        indexes = [
+            models.Index(fields=["code"]),
+            models.Index(fields=["is_active", "is_assignable"]),
+        ]
+        permissions = (
+            ("can_invite_admin_role", "Can invite users with the Admin role"),
+            (
+                "can_invite_department_head_role",
+                "Can invite users with the Department Head role",
+            ),
+        )
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        normalized_code = str(self.code or "").strip().upper()
+        valid_codes = {choice for choice, _ in self.ROLE_CHOICES}
+        self.code = normalized_code if normalized_code in valid_codes else "STUDENT"
+        if not self.name:
+            self.name = self.get_code_display()
+        self.metadata = self.metadata or {}
+        self.inviter_permissions = list(self.inviter_permissions or [])
+        self.permission_preset = list(self.permission_preset or [])
+        super().save(*args, **kwargs)
+
+
+class AdminInvitationBatch(models.Model):
+    """Track bulk invitation imports and outcomes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    name = models.CharField(max_length=255, blank=True)
+    source_file_name = models.CharField(max_length=255, blank=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="admin_invitation_batches",
+    )
+    total_rows = models.PositiveIntegerField(default=0)
+    successful_rows = models.PositiveIntegerField(default=0)
+    failed_rows = models.PositiveIntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "admin_management"
+        db_table = "admin_invitation_batches"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return self.name or f"Invitation batch {self.id}"
+
+    @property
+    def success_rate(self) -> float:
+        if not self.total_rows:
+            return 0.0
+        return round((self.successful_rows / self.total_rows) * 100, 2)
+
+
+class AdminRoleInvitation(models.Model):
+    """Invite a user into one or more specific CampusHub roles."""
+
+    class InvitationSource(models.TextChoices):
+        API = "api", "API"
+        ADMIN = "admin", "Admin"
+        CSV = "csv", "CSV Upload"
+
+    ROLE_CHOICES = AdminInvitationRole.ROLE_CHOICES
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    email = models.EmailField(db_index=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    note = models.TextField(blank=True)
+    source = models.CharField(
+        max_length=20,
+        choices=InvitationSource.choices,
+        default=InvitationSource.API,
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    accepted_metadata = models.JSONField(default=dict, blank=True)
+    email_subject = models.CharField(max_length=255, blank=True)
+    email_body = models.TextField(blank=True)
+    token = models.CharField(max_length=255, unique=True, db_index=True, blank=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="admin_role_invitations_sent",
+    )
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_role_invitations_accepted",
+    )
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_role_invitations_revoked",
+    )
+    batch = models.ForeignKey(
+        "admin_management.AdminInvitationBatch",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invitations",
+    )
+    expires_at = models.DateTimeField()
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "admin_management"
+        db_table = "admin_role_invitations"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["email", "created_at"]),
+            models.Index(fields=["role", "created_at"]),
+            models.Index(fields=["expires_at"]),
+            models.Index(fields=["source", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email} -> {', '.join(self.get_role_codes())}"
+
+    def save(self, *args, **kwargs):
+        from apps.accounts.models import User
+
+        self.email = (self.email or "").strip().lower()
+        allowed_roles = {choice for choice, _ in User.ROLE_CHOICES}
+        normalized_role = str(self.role or "").upper()
+        self.role = normalized_role if normalized_role in allowed_roles else "STUDENT"
+        self.metadata = self.metadata or {}
+        self.accepted_metadata = self.accepted_metadata or {}
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    def get_role_assignments(self):
+        cached = getattr(self, "_prefetched_objects_cache", {})
+        if "invitation_roles" in cached:
+            return cached["invitation_roles"]
+        return list(self.invitation_roles.select_related("role_definition").all())
+
+    def get_role_codes(self):
+        assignments = self.get_role_assignments()
+        if assignments:
+            assignment_codes = [
+                assignment.role_definition.code
+                for assignment in assignments
+                if assignment.role_definition_id
+            ]
+            requested_roles = [
+                str(role_code or "").strip().upper()
+                for role_code in (self.metadata or {}).get("requested_roles", [])
+                if str(role_code or "").strip()
+            ]
+            if requested_roles:
+                ordered_codes = []
+                for role_code in requested_roles:
+                    if role_code in assignment_codes and role_code not in ordered_codes:
+                        ordered_codes.append(role_code)
+                for role_code in assignment_codes:
+                    if role_code not in ordered_codes:
+                        ordered_codes.append(role_code)
+                return ordered_codes
+            return assignment_codes
+        return [self.role] if self.role else []
+
+    def get_role_names(self):
+        assignments = self.get_role_assignments()
+        if assignments:
+            return [
+                assignment.role_definition.name
+                for assignment in assignments
+                if assignment.role_definition_id
+            ]
+        return [self.get_role_display()] if self.role else []
+
+    @property
+    def status(self) -> str:
+        if self.accepted_at:
+            return "accepted"
+        if self.revoked_at:
+            return "revoked"
+        if self.expires_at <= timezone.now():
+            return "expired"
+        return "pending"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "pending"
+
+    @property
+    def primary_role_name(self) -> str:
+        assignments = self.get_role_assignments()
+        primary_assignment = next(
+            (assignment for assignment in assignments if assignment.is_primary),
+            None,
+        )
+        if primary_assignment and primary_assignment.role_definition_id:
+            return primary_assignment.role_definition.name
+        return self.get_role_display()
+
+    def is_valid(self) -> bool:
+        return self.is_active
+
+
+class AdminRoleInvitationRole(models.Model):
+    """Associate invitations with one or more requested roles."""
+
+    invitation = models.ForeignKey(
+        "admin_management.AdminRoleInvitation",
+        on_delete=models.CASCADE,
+        related_name="invitation_roles",
+    )
+    role_definition = models.ForeignKey(
+        "admin_management.AdminInvitationRole",
+        on_delete=models.CASCADE,
+        related_name="invitation_assignments",
+    )
+    is_primary = models.BooleanField(default=False)
+    permission_preset = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "admin_management"
+        db_table = "admin_role_invitation_roles"
+        ordering = ["-is_primary", "role_definition__sort_order", "role_definition__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invitation", "role_definition"],
+                name="admin_role_invitation_unique_role",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.invitation.email} -> {self.role_definition.code}"
+
+    def save(self, *args, **kwargs):
+        self.permission_preset = list(
+            self.permission_preset or getattr(self.role_definition, "permission_preset", []) or []
+        )
+        self.metadata = self.metadata or {}
+        super().save(*args, **kwargs)
+
+
+class AdminUserRoleAssignment(models.Model):
+    """Persist role associations and applied permission presets for users."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="role_assignments",
+    )
+    role_definition = models.ForeignKey(
+        "admin_management.AdminInvitationRole",
+        on_delete=models.CASCADE,
+        related_name="user_assignments",
+    )
+    invitation = models.ForeignKey(
+        "admin_management.AdminRoleInvitation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="user_role_assignments",
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="granted_role_assignments",
+    )
+    is_primary = models.BooleanField(default=False)
+    permission_preset = models.JSONField(default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "admin_management"
+        db_table = "admin_user_role_assignments"
+        ordering = ["-is_primary", "role_definition__sort_order", "role_definition__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "role_definition"],
+                name="admin_user_unique_role_assignment",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "revoked_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user} -> {self.role_definition.code}"
+
+    def save(self, *args, **kwargs):
+        self.permission_preset = list(
+            self.permission_preset or getattr(self.role_definition, "permission_preset", []) or []
+        )
+        self.metadata = self.metadata or {}
+        super().save(*args, **kwargs)
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None

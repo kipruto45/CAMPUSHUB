@@ -75,13 +75,13 @@
             </div>
             
             <center>
-                <a href="{{ profile_url }}" class="btn">View User Profile</a>
+                <a href="{{ profile_url|default:'#' }}" class="btn">View User Profile</a>
             </center>
             
             <p>Please review the user profile and take any necessary actions.</p>
         </div>
         <div class="footer">
-            <p>© 2024 {{ site_name }}. All rights reserved.</p>
+            <p>© 2026 {{ site_name }}. All rights reserved.</p>
             <p style="font-size: 12px;">
                 This is an automated notification from {{ site_name }}.
             </p>

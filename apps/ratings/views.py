@@ -85,7 +85,9 @@ class RateResourceView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         resource_id = kwargs.get("resource_id")
-        serializer = self.get_serializer(data=request.data)
+        payload = request.data.copy()
+        payload["resource"] = resource_id
+        serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
 
         # Check if rating already exists

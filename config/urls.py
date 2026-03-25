@@ -136,7 +136,25 @@ urlpatterns = [
     path("api/", include(("apps.api.urls", "api"), namespace="api")),
     # Direct namespaced aliases used by tests and integrations.
     path("api/auth/", include(("apps.accounts.urls", "accounts"), namespace="accounts")),
+    path(
+        "api/admin-management/",
+        include(("apps.admin_management.urls", "admin_management"), namespace="admin_management"),
+    ),
+    path("api/bookmarks/", include(("apps.bookmarks.urls", "bookmarks"), namespace="bookmarks")),
+    path("api/comments/", include(("apps.comments.urls", "comments"), namespace="comments")),
+    path("api/courses/", include(("apps.courses.urls", "courses"), namespace="courses")),
+    path("api/dashboard/", include(("apps.dashboard.urls", "dashboard"), namespace="dashboard")),
+    path("api/downloads/", include(("apps.downloads.urls", "downloads"), namespace="downloads")),
+    path("api/favorites/", include(("apps.favorites.urls", "favorites"), namespace="favorites")),
+    path("api/notifications/", include(("apps.notifications.urls", "notifications"), namespace="notifications")),
+    path("api/ratings/", include(("apps.ratings.urls", "ratings"), namespace="ratings")),
+    path("api/recommendations/", include(("apps.recommendations.urls", "recommendations"), namespace="recommendations")),
+    path("api/reports/", include(("apps.reports.urls", "reports"), namespace="reports")),
+    path("api/search/", include(("apps.search.urls", "search"), namespace="search")),
     path("api/", include(("apps.resources.urls", "resources"), namespace="resources")),
+    path("api/activity/", include(("apps.activity.urls", "activity"), namespace="activity")),
+    path("api/analytics/", include(("apps.analytics.urls", "analytics"), namespace="analytics")),
+    path("api/social/", include(("apps.social.urls", "social"), namespace="social")),
     # Legacy unversioned alias (deprecated)
     path("api/", include(([
         path("auth/", include("apps.accounts.urls")),

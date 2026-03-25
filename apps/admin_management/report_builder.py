@@ -111,9 +111,9 @@ class ReportBuilderService:
     @staticmethod
     def build_system_analytics_report(filters: Dict = None) -> QuerySet:
         """Build system analytics report."""
-        from apps.core.middleware import APIRequestLog
+        from apps.core.models import APIUsageLog
         
-        queryset = APIRequestLog.objects.all()
+        queryset = APIUsageLog.objects.all()
         
         if filters:
             if 'date_range' in filters:
@@ -252,8 +252,8 @@ class ReportBuilderService:
             }
         
         elif report_type == ReportType.SYSTEM_ANALYTICS:
-            from apps.core.middleware import APIRequestLog
-            queryset = APIRequestLog.objects.all()
+            from apps.core.models import APIUsageLog
+            queryset = APIUsageLog.objects.all()
             
             return {
                 'total_requests': queryset.count(),

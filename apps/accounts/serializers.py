@@ -771,3 +771,97 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if not is_valid:
             raise serializers.ValidationError(error)
         return value
+
+
+# ==================== Passwordless Authentication Serializers ====================
+
+
+class PasskeyRegistrationRequestSerializer(serializers.Serializer):
+    """Serializer for passkey registration request."""
+
+    name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the passkey"
+    )
+
+
+class PasskeyRegistrationCompleteSerializer(serializers.Serializer):
+    """Serializer for completing passkey registration."""
+
+    credential = serializers.DictField(
+        help_text="The credential data from the WebAuthn authenticator"
+    )
+    name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the passkey"
+    )
+
+
+class PasskeyAuthenticationStartSerializer(serializers.Serializer):
+    """Serializer for starting passkey authentication."""
+
+    user_id = serializers.IntegerField(
+        required=False,
+        help_text="Optional user ID to authenticate with their passkeys"
+    )
+
+
+class PasskeyAuthenticationCompleteSerializer(serializers.Serializer):
+    """Serializer for completing passkey authentication."""
+
+    credential = serializers.DictField(
+        help_text="The credential data from the WebAuthn authenticator"
+    )
+
+
+class PasskeyInfoSerializer(serializers.Serializer):
+    """Serializer for passkey information."""
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    credential_id = serializers.CharField()
+    sign_count = serializers.IntegerField()
+    backup_eligible = serializers.BooleanField()
+    backup_state = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+    last_used_at = serializers.DateTimeField(allow_null=True)
+
+
+class PasskeyDeleteSerializer(serializers.Serializer):
+    """Serializer for deleting a passkey."""
+
+    passkey_id = serializers.IntegerField(
+        help_text="ID of the passkey to delete"
+    )
+
+
+class PasskeyUpdateSerializer(serializers.Serializer):
+    """Serializer for updating passkey details."""
+
+    passkey_id = serializers.IntegerField(
+        help_text="ID of the passkey to update"
+    )
+    name = serializers.CharField(
+        max_length=100,
+        help_text="New name for the passkey"
+    )
+
+
+class MagicLinkRequestSerializer(serializers.Serializer):
+    """Serializer for magic link request."""
+
+    email = serializers.EmailField(
+        help_text="User's email address"
+    )
+
+
+class MagicLinkConsumeSerializer(serializers.Serializer):
+    """Serializer for consuming a magic link."""
+
+    token = serializers.CharField(
+        help_text="The magic link token"
+    )

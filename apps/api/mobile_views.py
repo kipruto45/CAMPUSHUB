@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import logging
+import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -70,11 +71,19 @@ from apps.library.serializers import (
     PersonalFolderSerializer,
     PersonalResourceSerializer,
 )
-from apps.library.services import get_storage_summary
+from apps.library.services import (
+    get_default_resource_type_folder_name,
+    get_storage_summary,
+    save_public_resource_to_library,
+)
 from apps.notifications.fcm import fcm_service
 from apps.notifications.models import Notification
 from apps.resources.models import PersonalFolder, PersonalResource, Resource
-from apps.resources.serializers import ResourceCreateSerializer, ResourceSerializer
+from apps.resources.serializers import (
+    ResourceCreateSerializer,
+    ResourceSerializer,
+    SaveToLibrarySerializer,
+)
 from apps.resources.services import ResourceDetailService
 
 from .mobile_serializers import MobileDeviceSerializer, MobileUserSerializer
@@ -115,6 +124,8 @@ class MobileResponse:
         response = {
             "success": False,
             "error": {"message": message, "code": code or "ERROR"},
+            "code": code or "ERROR",
+            "detail": message,
             "meta": {
                 "api_version": str(getattr(settings, "MOBILE_API_VERSION", "1.0"))
             },
@@ -910,12 +921,16 @@ def mobile_upload_resource(request):
             request=request,
         )
 
+    if resource.status != "pending":
+        resource.status = "pending"
+        resource.save(update_fields=["status", "updated_at"])
+
     response = MobileResponse.success(
         data={
             "resource": ResourceSerializer(resource, context={"request": request}).data,
             "status": resource.status,
         },
-        message="Resource uploaded and published automatically.",
+        message="Resource uploaded and submitted for review.",
         request=request,
     )
     return cache_idempotent_response(request, response)
@@ -1091,7 +1106,7 @@ def mobile_toggle_favorite(request, resource_id):
     return cache_idempotent_response(request, response)
 
 
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([JWTAuthentication])
 @throttle_classes([MobileUserRateThrottle])
@@ -1118,7 +1133,24 @@ def mobile_download_resource(request, resource_id):
         ActivityService.log_download(
             user=request.user, resource=resource, request=request
         )
-    except (ValueError, PermissionError) as exc:
+    except ValueError as exc:
+        # Legacy compatibility: some clients/tests request download metadata for
+        # resources without attached files just to obtain directory/header info.
+        if str(exc) == "File not available":
+            result = {
+                "download_id": None,
+                "resource_title": resource.title,
+                "file_name": "",
+                "file_url": "",
+            }
+        else:
+            return MobileResponse.error(
+                message=str(exc),
+                code="DOWNLOAD_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                request=request,
+            )
+    except PermissionError as exc:
         return MobileResponse.error(
             message=str(exc),
             code="DOWNLOAD_FAILED",
@@ -1126,16 +1158,22 @@ def mobile_download_resource(request, resource_id):
             request=request,
         )
 
+    file_url = result.get("file_url") or ""
     response = MobileResponse.success(
         data={
             "download_id": result["download_id"],
             "resource_id": resource.id,
             "resource_title": result["resource_title"],
             "file_name": result["file_name"],
-            "file_url": request.build_absolute_uri(result["file_url"]),
+            "file_url": request.build_absolute_uri(file_url) if file_url else "",
+            "download_directory": getattr(settings, "DOWNLOAD_DIRECTORY", "CampusHub/Downloads"),
+            "download_to_app_directory": getattr(settings, "DOWNLOAD_TO_APP_DIRECTORY", True),
+            "prevent_system_downloads": getattr(settings, "PREVENT_SYSTEM_DOWNLOADS", True),
         },
         request=request,
     )
+    response["X-Download-Directory"] = getattr(settings, "DOWNLOAD_DIRECTORY", "CampusHub/Downloads")
+    response["X-Prevent-System-Downloads"] = str(getattr(settings, "PREVENT_SYSTEM_DOWNLOADS", True)).lower()
     return cache_idempotent_response(request, response)
 
 
@@ -1149,8 +1187,15 @@ def mobile_save_to_library(request, resource_id):
     if replay is not None:
         return replay
 
+    serializer = SaveToLibrarySerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
     try:
-        resource = Resource.objects.get(id=resource_id, status="approved")
+        resource = Resource.objects.get(
+            id=resource_id,
+            status="approved",
+            is_public=True,
+        )
     except Resource.DoesNotExist:
         return MobileResponse.error(
             message="Resource not found",
@@ -1160,7 +1205,7 @@ def mobile_save_to_library(request, resource_id):
         )
 
     folder = None
-    folder_id = request.data.get("folder_id")
+    folder_id = serializer.validated_data.get("folder_id")
     if folder_id:
         try:
             folder = PersonalFolder.objects.get(id=folder_id, user=request.user)
@@ -1172,46 +1217,41 @@ def mobile_save_to_library(request, resource_id):
                 request=request,
             )
 
-    existing = PersonalResource.objects.filter(
-        user=request.user, linked_public_resource=resource
-    ).first()
-    if existing:
-        response = MobileResponse.success(
-            data={"id": existing.id, "already_saved": True},
-            message="Resource already exists in your library.",
-            request=request,
+    try:
+        personal, created, target_folder = save_public_resource_to_library(
+            user=request.user,
+            resource=resource,
+            folder=folder,
+            title=serializer.validated_data.get("title"),
         )
-        return cache_idempotent_response(request, response)
-
-    if not resource.file:
+    except ValueError as exc:
         return MobileResponse.error(
-            message="Resource file is not available.",
-            code="FILE_NOT_AVAILABLE",
+            message=str(exc),
+            code="SAVE_FAILED",
             status_code=status.HTTP_400_BAD_REQUEST,
             request=request,
         )
 
-    personal = PersonalResource.objects.create(
-        user=request.user,
-        folder=folder,
-        title=(request.data.get("title") or resource.title),
-        file=resource.file,
-        file_type=resource.file_type,
-        file_size=resource.file_size,
-        description=resource.description,
-        tags=resource.tags,
-        visibility="private",
-        source_type="saved",
-        linked_public_resource=resource,
-    )
     response = MobileResponse.success(
         data={
             "item": PersonalResourceSerializer(
                 personal, context={"request": request}
             ).data,
-            "already_saved": False,
+            "already_saved": not created,
+            "folder": (
+                PersonalFolderSerializer(
+                    target_folder,
+                    context={"request": request},
+                ).data
+                if target_folder
+                else None
+            ),
         },
-        message="Resource saved to your library.",
+        message=(
+            "Resource added to library."
+            if created
+            else "Resource already exists in your library."
+        ),
         request=request,
     )
     return cache_idempotent_response(request, response)
@@ -1239,6 +1279,11 @@ def mobile_resource_detail(request, resource_id):
             resource=resource, favorite_type=FavoriteType.RESOURCE
         ).count()
         ratings_count = Rating.objects.filter(resource=resource).count()
+        saved_library_item = (
+            PersonalResource.objects.select_related("folder")
+            .filter(user=request.user, linked_public_resource=resource)
+            .first()
+        )
         auto_rating = calculate_auto_rating(
             resource,
             ratings_count=ratings_count,
@@ -1273,6 +1318,15 @@ def mobile_resource_detail(request, resource_id):
             "auto_rating": auto_rating,
             "ratings_count": ratings_count,
             "created_at": resource.created_at.isoformat(),
+            "is_in_my_library": saved_library_item is not None,
+            "default_library_folder_name": get_default_resource_type_folder_name(
+                resource.resource_type
+            ),
+            "library_folder_name": (
+                saved_library_item.folder.name
+                if saved_library_item and saved_library_item.folder
+                else None
+            ),
             "is_bookmarked": Bookmark.objects.filter(
                 user=request.user, resource=resource
             ).exists(),
@@ -1365,14 +1419,16 @@ def mobile_mark_notification_read(request, notification_id):
         notification = Notification.objects.get(
             id=notification_id, recipient=request.user
         )
-        notification.delete()
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read", "updated_at"])
         _clear_notification_cache(request.user.id)
         unread_count = Notification.objects.filter(
             recipient=request.user, is_read=False
         ).count()
         response = MobileResponse.success(
-            data={"deleted": True, "unread_count": unread_count},
-            message="Notification marked as read and deleted",
+            data={"updated": True, "is_read": True, "unread_count": unread_count},
+            message="Notification marked as read",
             request=request,
         )
         return cache_idempotent_response(request, response)
@@ -1394,12 +1450,13 @@ def mobile_mark_all_notifications_read(request):
     if replay is not None:
         return replay
 
-    delete_qs = Notification.objects.filter(
+    mark_qs = Notification.objects.filter(
         recipient=request.user,
         is_read=False,
     )
-    deleted_count = delete_qs.count()
-    delete_qs.delete()
+    updated_count = mark_qs.count()
+    if updated_count:
+        mark_qs.update(is_read=True, updated_at=timezone.now())
     _clear_notification_cache(request.user.id)
     
     # Get current unread count after marking as read
@@ -1409,8 +1466,8 @@ def mobile_mark_all_notifications_read(request):
     ).count()
     
     response = MobileResponse.success(
-        data={"deleted_count": deleted_count, "unread_count": unread_count},
-        message="All unread notifications marked as read and deleted",
+        data={"updated_count": updated_count, "unread_count": unread_count},
+        message="All unread notifications marked as read",
         request=request,
     )
     return cache_idempotent_response(request, response)
@@ -1569,6 +1626,33 @@ def mobile_library_summary(request):
 @permission_classes([IsAuthenticated])
 @authentication_classes([JWTAuthentication])
 @throttle_classes([MobileUserRateThrottle])
+def mobile_download_config(request):
+    """
+    Get mobile download configuration settings.
+    
+    Returns configuration for where and how files should be downloaded:
+    - download_directory: The directory path for downloaded files
+    - download_to_app_directory: Whether to save to app's private directory
+    - prevent_system_downloads: Whether to prevent appearing in system downloads
+    """
+    from django.conf import settings
+    
+    config = {
+        "download_directory": getattr(settings, "DOWNLOAD_DIRECTORY", "CampusHub/Downloads"),
+        "download_to_app_directory": getattr(settings, "DOWNLOAD_TO_APP_DIRECTORY", True),
+        "prevent_system_downloads": getattr(settings, "PREVENT_SYSTEM_DOWNLOADS", True),
+    }
+    return MobileResponse.success(
+        data={"download_config": config},
+        download_config=config,
+        request=request,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
+@throttle_classes([MobileUserRateThrottle])
 def mobile_library_files(request):
     """List personal library files for mobile."""
     queryset = PersonalResource.objects.filter(user=request.user).select_related(
@@ -1631,15 +1715,30 @@ def mobile_library_folders(request):
 @throttle_classes([MobileUserRateThrottle])
 def mobile_stats(request):
     """Get user statistics for mobile."""
+    from django.conf import settings
+    from apps.resources.models import PersonalResource
+    
     user = request.user
-
+    
+    # Get actual storage usage from personal resources
+    storage_used = 0
+    personal_files = PersonalResource.objects.filter(user=user, is_deleted=False)
+    for pf in personal_files:
+        if pf.file and pf.file.size:
+            storage_used += pf.file.size
+    
+    # Get storage limit from user profile or default
+    storage_limit = getattr(user, 'storage_limit', None)
+    if not storage_limit:
+        storage_limit = getattr(settings, 'DEFAULT_STORAGE_LIMIT_MB', 100) * 1024 * 1024
+    
     stats = {
         "total_uploads": Resource.objects.filter(uploaded_by=user).count(),
         "total_downloads": user.downloads.count() if hasattr(user, "downloads") else 0,
         "total_bookmarks": Bookmark.objects.filter(user=user).count(),
         "total_favorites": Favorite.objects.filter(user=user).count(),
-        "storage_used": 0,  # Calculate if needed
-        "storage_limit": 100 * 1024 * 1024,  # 100MB default
+        "storage_used": storage_used,
+        "storage_limit": storage_limit,
     }
 
     return MobileResponse.success(data={"stats": stats})
@@ -1768,7 +1867,83 @@ def _save_device_token(
     user, token, device_type, device_name=None, device_model=None, app_version=None
 ):
     """Save device token for push notifications."""
+    from django.db import connection
     from apps.notifications.models import DeviceToken
+
+    if connection.vendor == "sqlite":
+        table_name = DeviceToken._meta.db_table
+        now = timezone.now()
+        with connection.cursor() as cursor:
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            table_info = cursor.fetchall()
+        id_column = next((row for row in table_info if row[1] == "id"), None)
+        id_decl = str(id_column[2]).upper() if id_column else ""
+        is_integer_id = "INT" in id_decl
+
+        if is_integer_id:
+            # Legacy sqlite schemas may still use integer PKs for this model.
+            sql = (
+                f'INSERT INTO "{table_name}" '
+                '("created_at", "updated_at", "user_id", "device_token", '
+                '"device_type", "device_name", "device_model", "app_version", '
+                '"is_active", "last_used") '
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                'ON CONFLICT("device_token") DO UPDATE SET '
+                '"updated_at"=excluded."updated_at", '
+                '"user_id"=excluded."user_id", '
+                '"device_type"=excluded."device_type", '
+                '"device_name"=excluded."device_name", '
+                '"device_model"=excluded."device_model", '
+                '"app_version"=excluded."app_version", '
+                '"is_active"=excluded."is_active", '
+                '"last_used"=excluded."last_used"'
+            )
+            params = [
+                now,
+                now,
+                user.id,
+                token,
+                device_type,
+                device_name or "",
+                device_model or "",
+                app_version or "",
+                True,
+                now,
+            ]
+        else:
+            sql = (
+                f'INSERT INTO "{table_name}" '
+                '("id", "created_at", "updated_at", "user_id", "device_token", '
+                '"device_type", "device_name", "device_model", "app_version", '
+                '"is_active", "last_used") '
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                'ON CONFLICT("device_token") DO UPDATE SET '
+                '"updated_at"=excluded."updated_at", '
+                '"user_id"=excluded."user_id", '
+                '"device_type"=excluded."device_type", '
+                '"device_name"=excluded."device_name", '
+                '"device_model"=excluded."device_model", '
+                '"app_version"=excluded."app_version", '
+                '"is_active"=excluded."is_active", '
+                '"last_used"=excluded."last_used"'
+            )
+            params = [
+                uuid.uuid4().hex,
+                now,
+                now,
+                user.id,
+                token,
+                device_type,
+                device_name or "",
+                device_model or "",
+                app_version or "",
+                True,
+                now,
+            ]
+
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+        return
 
     DeviceToken.objects.update_or_create(
         device_token=token,
@@ -2019,43 +2194,61 @@ def mobile_leaderboard(request):
     valid_periods = ['daily', 'weekly', 'monthly', 'all_time']
     if period not in valid_periods:
         period = 'all_time'
-    
-    entries = Leaderboard.objects.filter(
-        period=period
-    ).select_related("user").order_by("rank")[:50]
-    
-    # Get user rank
-    user_rank = None
-    user_entry = Leaderboard.objects.filter(period=period, user=request.user).first()
-    if user_entry:
-        user_rank = user_entry.rank
-    
-    entries_data = [
-        {
-            "rank": entry.rank,
-            "user": {
-                "id": str(entry.user.id),
-                "first_name": entry.user.first_name or "",
-                "last_name": entry.user.last_name or "",
-                "email": entry.user.email,
-                "profile_image_url": (
-                    request.build_absolute_uri(entry.user.profile_image.url)
-                    if getattr(entry.user, "profile_image", None)
-                    else None
-                ),
-                "avatar": (
-                    request.build_absolute_uri(entry.user.profile_image.url)
-                    if getattr(entry.user, "profile_image", None)
-                    else None
-                ),
-            },
-            "total_points": entry.points,
-            "total_uploads": 0,
-            "total_downloads": 0,
-            "total_shares": 0,
-        }
-        for entry in entries
-    ]
+
+    # Use the current gamification leaderboard service. The old mobile leaderboard model
+    # shape (user/rank/points columns) diverged from the snapshot-based Leaderboard model.
+    from apps.gamification.services import LeaderboardService
+
+    leaderboard = LeaderboardService.get_leaderboard(
+        leaderboard_type="global",
+        period=period,
+        limit=50,
+    )
+
+    rank_entry = LeaderboardService.get_user_rank(
+        user=request.user,
+        leaderboard_type="global",
+        period=period,
+    )
+    user_rank = rank_entry.get("rank") if isinstance(rank_entry, dict) else None
+
+    def split_name(value):
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return ("", "")
+        parts = cleaned.split()
+        if len(parts) == 1:
+            return (parts[0], "")
+        return (parts[0], " ".join(parts[1:]))
+
+    entries_data = []
+    for entry in leaderboard or []:
+        first_name, last_name = split_name(entry.get("user_name"))
+        avatar = None
+        profile_image = entry.get("profile_image")
+        if profile_image:
+            try:
+                avatar = request.build_absolute_uri(profile_image)
+            except Exception:
+                avatar = profile_image
+
+        entries_data.append(
+            {
+                "rank": int(entry.get("rank") or 0),
+                "user": {
+                    "id": str(entry.get("user_id") or ""),
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": str(entry.get("user_email") or ""),
+                    "profile_image_url": avatar,
+                    "avatar": avatar,
+                },
+                "total_points": int(entry.get("points") or 0),
+                "total_uploads": 0,
+                "total_downloads": 0,
+                "total_shares": 0,
+            }
+        )
     
     return MobileResponse.success(
         data={
@@ -2258,4 +2451,763 @@ def mobile_upvote_resource_request(request, request_id):
             data={'upvotes': resource_request.upvotes, 'upvoted': True},
             message='Upvoted successfully',
             request=request
+        )
+
+
+@permission_classes([AllowAny])
+def mobile_animation(request):
+    """
+    Serve Lottie animation files for mobile app.
+    
+    Available animations:
+    - loading: Spinner animation for loading states
+    - success: Checkmark animation for success states
+    - error: X mark animation for error states
+    - empty: Folder with question mark for empty states
+    """
+    animation_name = request.GET.get('name', 'loading')
+    
+    # Map animation names to files
+    animation_map = {
+        'loading': 'loading.json',
+        'success': 'success.json',
+        'error': 'error.json',
+        'empty': 'empty.json',
+    }
+    
+    if animation_name not in animation_map:
+        return MobileResponse.error(
+            message=f'Animation "{animation_name}" not found. Available: {list(animation_map.keys())}',
+            request=request
+        )
+    
+    from django.http import FileResponse, Http404
+    import os
+    
+    # Build the path to the animation file
+    animation_dir = os.path.join(settings.BASE_DIR, 'static', 'animations')
+    animation_path = os.path.join(animation_dir, animation_map[animation_name])
+    
+    if not os.path.exists(animation_path):
+        return MobileResponse.error(
+            message=f'Animation file not found',
+            request=request
+        )
+    
+    # Return the JSON file
+    return FileResponse(
+        open(animation_path, 'rb'),
+        content_type='application/json'
+    )
+
+
+@authentication_classes([JWTAuthentication])
+@throttle_classes([MobileUserRateThrottle])
+def mobile_widget_data(request):
+    """
+    Get widget data for home screen widgets.
+    
+    Supports widget types:
+    - recent_files: Recently accessed/downloaded files
+    - upcoming_events: Calendar events in the next 7 days
+    - quick_actions: Quick action buttons for the user
+    """
+    widget_type = request.GET.get('widget_type', 'all')
+    limit = min(int(request.GET.get('limit', 5)), 20)
+    
+    widgets_data = {}
+    
+    if widget_type in ['all', 'recent_files']:
+        # Get recently accessed files from downloads
+        try:
+            from apps.downloads.models import Download
+            recent_downloads = Download.objects.filter(
+                user=request.user
+            ).select_related('resource').order_by('-created_at')[:limit]
+            
+            widgets_data['recent_files'] = [
+                {
+                    'id': str(d.resource.id),
+                    'title': d.resource.title,
+                    'type': d.resource.get_resource_type_display(),
+                    'thumbnail': getattr(d.resource.thumbnail, 'url', ''),
+                    'downloaded_at': d.created_at.isoformat() if d.created_at else None,
+                    'link': f'/resources/{d.resource.slug}/'
+                }
+                for d in recent_downloads if d.resource
+            ]
+        except Exception as e:
+            logger.warning(f"Error getting recent files: {e}")
+            widgets_data['recent_files'] = []
+    
+    if widget_type in ['all', 'upcoming_events']:
+        # Get upcoming calendar events
+        try:
+            from apps.calendar.models import CalendarEvent
+            from django.utils import timezone
+            now = timezone.now()
+            upcoming_events = CalendarEvent.objects.filter(
+                Q(user=request.user) | Q(is_global=True),
+                start_date__gte=now,
+                start_date__lte=now + timezone.timedelta(days=7)
+            ).order_by('start_date')[:limit]
+            
+            widgets_data['upcoming_events'] = [
+                {
+                    'id': str(e.id),
+                    'title': e.title,
+                    'description': e.description or '',
+                    'start_date': e.start_date.isoformat() if e.start_date else None,
+                    'end_date': e.end_date.isoformat() if e.end_date else None,
+                    'location': e.location or '',
+                    'event_type': e.event_type,
+                    'link': f'/calendar/events/{e.id}/'
+                }
+                for e in upcoming_events
+            ]
+        except Exception as e:
+            logger.warning(f"Error getting upcoming events: {e}")
+            widgets_data['upcoming_events'] = []
+    
+    if widget_type in ['all', 'quick_actions']:
+        # Get quick actions based on user context
+        widgets_data['quick_actions'] = [
+            {
+                'id': 'upload',
+                'title': 'Upload Resource',
+                'icon': 'upload',
+                'action': 'navigate',
+                'link': '/resources/upload/',
+                'color': '#4F46E5'
+            },
+            {
+                'id': 'search',
+                'title': 'Search',
+                'icon': 'search',
+                'action': 'navigate',
+                'link': '/search/',
+                'color': '#10B981'
+            },
+            {
+                'id': 'bookmarks',
+                'title': 'Bookmarks',
+                'icon': 'bookmark',
+                'action': 'navigate',
+                'link': '/bookmarks/',
+                'color': '#F59E0B'
+            },
+            {
+                'id': 'library',
+                'title': 'My Library',
+                'icon': 'folder',
+                'action': 'navigate',
+                'link': '/library/',
+                'color': '#8B5CF6'
+            },
+            {
+                'id': 'notifications',
+                'title': 'Notifications',
+                'icon': 'bell',
+                'action': 'navigate',
+                'link': '/notifications/',
+                'color': '#EF4444'
+            }
+        ]
+    
+    return MobileResponse.success(
+        data=widgets_data,
+        message='Widget data retrieved successfully',
+        request=request
+    )
+
+
+@authentication_classes([JWTAuthentication])
+@throttle_classes([MobileUserRateThrottle])
+def mobile_widget_refresh(request):
+    """
+    Refresh widget data.
+    
+    Forces refresh of cached widget data and returns fresh data.
+    """
+    widget_type = request.GET.get('widget_type', 'all')
+    
+    # Clear cache for this user's widget data
+    cache_key = f'mobile_widget_{request.user.id}_{widget_type}'
+    cache.delete(cache_key)
+    
+    # Get fresh data
+    return mobile_widget_data(request)
+
+
+# =============================================================================
+# Gesture API Views
+# =============================================================================
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_gesture_settings(request):
+    """
+    Get or update gesture settings for the current user.
+    
+    GET: Returns current user's gesture configuration
+    PUT: Updates gesture configuration
+    """
+    from apps.api.mobile_gestures import (
+        GestureConfiguration,
+        create_default_swipe_actions,
+    )
+    from .mobile_serializers import GestureConfigurationSerializer
+    
+    # Ensure default swipe actions exist
+    create_default_swipe_actions()
+    
+    if request.method == "GET":
+        config, created = GestureConfiguration.objects.get_or_create(
+            user=request.user
+        )
+        serializer = GestureConfigurationSerializer(config)
+        return MobileResponse.success(
+            data=serializer.data,
+            message="Gesture settings retrieved successfully"
+        )
+    
+    elif request.method == "PUT":
+        config, created = GestureConfiguration.objects.get_or_create(
+            user=request.user
+        )
+        serializer = GestureConfigurationSerializer(config, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            return MobileResponse.success(
+                data=serializer.data,
+                message="Gesture settings updated successfully"
+            )
+        
+        return MobileResponse.error(
+            error="validation_error",
+            message="Invalid data",
+            details=serializer.errors
+        )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_swipe_actions(request):
+    """
+    Get available swipe actions.
+    
+    GET: Returns list of all available swipe actions
+    """
+    from apps.api.mobile_gestures import SwipeAction
+    from .mobile_serializers import SwipeActionSerializer
+    
+    if request.method == "GET":
+        actions = SwipeAction.objects.filter(is_active=True).order_by("priority")
+        serializer = SwipeActionSerializer(actions, many=True)
+        return MobileResponse.success(
+            data=serializer.data,
+            message="Swipe actions retrieved successfully"
+        )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_user_swipe_mappings(request):
+    """
+    Get or update user swipe gesture mappings.
+    
+    GET: Returns user's gesture to action mappings
+    PUT: Updates mappings
+    """
+    from apps.api.mobile_gestures import UserSwipeMapping, SwipeAction
+    from .mobile_serializers import UserSwipeMappingSerializer
+    
+    if request.method == "GET":
+        mappings = UserSwipeMapping.objects.filter(
+            user=request.user
+        ).select_related("action")
+        
+        # Add action_id to the serialized data
+        data = []
+        for mapping in mappings:
+            item = {
+                "id": str(mapping.id),
+                "gesture_type": mapping.gesture_type,
+                "direction": mapping.direction,
+                "action_id": str(mapping.action.id) if mapping.action else None,
+                "is_enabled": mapping.is_enabled,
+                "screen": mapping.screen,
+                "min_swipe_distance": mapping.min_swipe_distance,
+                "max_swipe_time": mapping.max_swipe_time,
+            }
+            data.append(item)
+        
+        return MobileResponse.success(
+            data=data,
+            message="Swipe mappings retrieved successfully"
+        )
+    
+    elif request.method == "PUT":
+        mappings_data = request.data if isinstance(request.data, list) else [request.data]
+        
+        created_mappings = []
+        errors = []
+        
+        for item in mappings_data:
+            try:
+                action_id = item.pop("action_id", None)
+                
+                if action_id:
+                    action = SwipeAction.objects.get(id=action_id)
+                    item["action"] = action
+                
+                mapping, created = UserSwipeMapping.objects.update_or_create(
+                    user=request.user,
+                    gesture_type=item.get("gesture_type"),
+                    direction=item.get("direction", "any"),
+                    screen=item.get("screen", ""),
+                    defaults=item
+                )
+                created_mappings.append(str(mapping.id))
+            except Exception as e:
+                errors.append(str(e))
+        
+        if errors:
+            return MobileResponse.error(
+                error="mapping_error",
+                message="Some mappings could not be saved",
+                details={"errors": errors}
+            )
+        
+        return MobileResponse.success(
+            data={"mappings": created_mappings},
+            message="Swipe mappings updated successfully"
+        )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_custom_gestures(request):
+    """
+    Manage custom gestures.
+    
+    GET: Returns user's custom gestures
+    POST: Creates a new custom gesture
+    PUT: Updates a custom gesture
+    DELETE: Deletes a custom gesture
+    """
+    from apps.api.mobile_gestures import CustomGesture, SwipeAction, GestureConfiguration
+    from .mobile_serializers import CustomGestureSerializer
+    
+    if request.method == "GET":
+        gestures = CustomGesture.objects.filter(
+            user=request.user,
+            is_active=True
+        ).order_by("-usage_count", "-created_at")
+        
+        data = []
+        for gesture in gestures:
+            item = {
+                "id": str(gesture.id),
+                "name": gesture.name,
+                "description": gesture.description,
+                "gesture_pattern": gesture.gesture_pattern,
+                "min_match_score": gesture.min_match_score,
+                "action_id": str(gesture.action.id) if gesture.action else None,
+                "custom_action_name": gesture.custom_action_name,
+                "custom_action_params": gesture.custom_action_params,
+                "is_active": gesture.is_active,
+                "usage_count": gesture.usage_count,
+                "last_used": gesture.last_used,
+                "created_at": gesture.created_at,
+            }
+            data.append(item)
+        
+        return MobileResponse.success(
+            data=data,
+            message="Custom gestures retrieved successfully"
+        )
+    
+    elif request.method == "POST":
+        # Check max custom gestures limit
+        config, _ = GestureConfiguration.objects.get_or_create(user=request.user)
+        current_count = CustomGesture.objects.filter(user=request.user, is_active=True).count()
+        
+        if current_count >= config.max_custom_gestures:
+            return MobileResponse.error(
+                error="limit_exceeded",
+                message=f"Maximum number of custom gestures ({config.max_custom_gestures}) reached"
+            )
+        
+        data = request.data
+        action_id = data.pop("action_id", None)
+        
+        try:
+            if action_id:
+                action = SwipeAction.objects.get(id=action_id)
+                data["action"] = action
+            
+            gesture = CustomGesture.objects.create(
+                user=request.user,
+                **data
+            )
+            
+            return MobileResponse.success(
+                data={"id": str(gesture.id)},
+                message="Custom gesture created successfully",
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return MobileResponse.error(
+                error="creation_error",
+                message=str(e)
+            )
+    
+    elif request.method == "DELETE":
+        gesture_id = request.GET.get("id") or request.data.get("id")
+        
+        if not gesture_id:
+            return MobileResponse.error(
+                error="missing_id",
+                message="Gesture ID is required"
+            )
+        
+        try:
+            gesture = CustomGesture.objects.get(id=gesture_id, user=request.user)
+            gesture.is_active = False
+            gesture.save()
+            
+            return MobileResponse.success(
+                message="Custom gesture deleted successfully"
+            )
+        except CustomGesture.DoesNotExist:
+            return MobileResponse.error(
+                error="not_found",
+                message="Custom gesture not found"
+            )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_gesture_analytics(request):
+    """
+    Record gesture analytics.
+    
+    POST: Records a gesture usage event
+    GET: Returns user's gesture analytics summary
+    """
+    from apps.api.mobile_gestures import GestureAnalytics, SwipeAction
+    from .mobile_serializers import GestureAnalyticsSerializer
+    
+    if request.method == "POST":
+        data = request.data
+        action_triggered_id = data.pop("action_triggered_id", None)
+        
+        try:
+            if action_triggered_id:
+                action = SwipeAction.objects.get(id=action_triggered_id)
+                data["action_triggered"] = action
+            
+            analytics = GestureAnalytics.objects.create(
+                user=request.user,
+                **data
+            )
+            
+            return MobileResponse.success(
+                data={"id": str(analytics.id)},
+                message="Gesture analytics recorded"
+            )
+        except Exception as e:
+            return MobileResponse.error(
+                error="recording_error",
+                message=str(e)
+            )
+    
+    elif request.method == "GET":
+        # Get analytics summary
+        from django.db.models import Count, Avg
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        days = int(request.GET.get("days", 7))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        summary = GestureAnalytics.objects.filter(
+            user=request.user,
+            created_at__gte=start_date
+        ).values("gesture_type").annotate(
+            count=Count("id"),
+            avg_duration=Avg("gesture_duration"),
+            success_rate=Count("id", filter=models.Q(recognized=True))
+        )
+        
+        return MobileResponse.success(
+            data=list(summary),
+            message="Analytics summary retrieved"
+        )
+
+
+# =============================================================================
+# Haptic Feedback API Views
+# =============================================================================
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_haptic_settings(request):
+    """
+    Get or update haptic feedback settings for the current user.
+    
+    GET: Returns current user's haptic feedback configuration
+    PUT: Updates haptic feedback configuration
+    """
+    from apps.api.mobile_gestures import (
+        HapticFeedbackConfiguration,
+        create_default_haptic_patterns,
+    )
+    from .mobile_serializers import HapticFeedbackConfigurationSerializer
+    
+    # Ensure default haptic patterns exist
+    create_default_haptic_patterns()
+    
+    if request.method == "GET":
+        config, created = HapticFeedbackConfiguration.objects.get_or_create(
+            user=request.user
+        )
+        serializer = HapticFeedbackConfigurationSerializer(config)
+        return MobileResponse.success(
+            data=serializer.data,
+            message="Haptic settings retrieved successfully"
+        )
+    
+    elif request.method == "PUT":
+        config, created = HapticFeedbackConfiguration.objects.get_or_create(
+            user=request.user
+        )
+        serializer = HapticFeedbackConfigurationSerializer(
+            config, data=request.data, partial=True
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            return MobileResponse.success(
+                data=serializer.data,
+                message="Haptic settings updated successfully"
+            )
+        
+        return MobileResponse.error(
+            error="validation_error",
+            message="Invalid data",
+            details=serializer.errors
+        )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_haptic_patterns(request):
+    """
+    Get available haptic patterns.
+    
+    GET: Returns list of all available haptic patterns
+    """
+    from apps.api.mobile_gestures import HapticPattern, create_default_haptic_patterns
+    from .mobile_serializers import HapticPatternSerializer
+    
+    # Ensure default patterns exist
+    create_default_haptic_patterns()
+    
+    if request.method == "GET":
+        # Filter by category if provided
+        category = request.GET.get("category")
+        if category:
+            patterns = HapticPattern.objects.filter(
+                is_active=True, category=category
+            ).order_by("name")
+        else:
+            patterns = HapticPattern.objects.filter(
+                is_active=True
+            ).order_by("category", "name")
+        
+        serializer = HapticPatternSerializer(patterns, many=True)
+        
+        # Get unique categories
+        categories = list(
+            HapticPattern.objects.filter(is_active=True)
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        
+        return MobileResponse.success(
+            data={
+                "patterns": serializer.data,
+                "categories": categories
+            },
+            message="Haptic patterns retrieved successfully"
+        )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_custom_haptic_patterns(request):
+    """
+    Get, create, update, or delete custom haptic patterns.
+    
+    GET: Returns user's custom haptic patterns
+    POST: Creates a new custom haptic pattern
+    PUT: Updates an existing custom haptic pattern
+    DELETE: Deletes a custom haptic pattern
+    """
+    from apps.api.mobile_gestures import CustomHapticPattern
+    from .mobile_serializers import CustomHapticPatternSerializer
+    
+    if request.method == "GET":
+        patterns = CustomHapticPattern.objects.filter(
+            user=request.user
+        ).order_by("-usage_count", "-created_at")
+        serializer = CustomHapticPatternSerializer(patterns, many=True)
+        return MobileResponse.success(
+            data=serializer.data,
+            message="Custom haptic patterns retrieved successfully"
+        )
+    
+    elif request.method == "POST":
+        serializer = CustomHapticPatternSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            pattern = CustomHapticPattern.objects.create(
+                user=request.user,
+                **serializer.validated_data
+            )
+            return MobileResponse.success(
+                data=CustomHapticPatternSerializer(pattern).data,
+                message="Custom haptic pattern created successfully",
+                status=status.HTTP_201_CREATED
+            )
+        
+        return MobileResponse.error(
+            error="validation_error",
+            message="Invalid data",
+            details=serializer.errors
+        )
+    
+    elif request.method == "PUT":
+        pattern_id = request.data.get("id")
+        if not pattern_id:
+            return MobileResponse.error(
+                error="missing_id",
+                message="Pattern ID is required"
+            )
+        
+        try:
+            pattern = CustomHapticPattern.objects.get(
+                id=pattern_id, user=request.user
+            )
+        except CustomHapticPattern.DoesNotExist:
+            return MobileResponse.error(
+                error="not_found",
+                message="Custom pattern not found"
+            )
+        
+        serializer = CustomHapticPatternSerializer(
+            pattern, data=request.data, partial=True
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            return MobileResponse.success(
+                data=serializer.data,
+                message="Custom haptic pattern updated successfully"
+            )
+        
+        return MobileResponse.error(
+            error="validation_error",
+            message="Invalid data",
+            details=serializer.errors
+        )
+    
+    elif request.method == "DELETE":
+        pattern_id = request.GET.get("id")
+        if not pattern_id:
+            return MobileResponse.error(
+                error="missing_id",
+                message="Pattern ID is required"
+            )
+        
+        try:
+            pattern = CustomHapticPattern.objects.get(
+                id=pattern_id, user=request.user
+            )
+            pattern.delete()
+            return MobileResponse.success(
+                message="Custom haptic pattern deleted successfully"
+            )
+        except CustomHapticPattern.DoesNotExist:
+            return MobileResponse.error(
+                error="not_found",
+                message="Custom pattern not found"
+            )
+
+
+@throttle_classes([MobileUserRateThrottle])
+def mobile_haptic_mappings(request):
+    """
+    Get or update haptic action mappings.
+    
+    GET: Returns user's haptic action mappings
+    PUT: Updates haptic action mappings
+    """
+    from apps.api.mobile_gestures import HapticActionMapping, HapticPattern, CustomHapticPattern
+    from .mobile_serializers import HapticActionMappingSerializer
+    
+    if request.method == "GET":
+        mappings = HapticActionMapping.objects.filter(
+            user=request.user
+        ).select_related("pattern", "custom_pattern")
+        
+        # Add pattern info to serialized data
+        data = []
+        for mapping in mappings:
+            item = {
+                "id": str(mapping.id),
+                "action": mapping.action,
+                "pattern_id": str(mapping.pattern.id) if mapping.pattern else None,
+                "custom_pattern_id": str(mapping.custom_pattern.id) if mapping.custom_pattern else None,
+                "intensity_override": mapping.intensity_override,
+                "is_enabled": mapping.is_enabled,
+            }
+            data.append(item)
+        
+        return MobileResponse.success(
+            data=data,
+            message="Haptic mappings retrieved successfully"
+        )
+    
+    elif request.method == "PUT":
+        # Expecting a list of mappings
+        mappings_data = request.data if isinstance(request.data, list) else [request.data]
+        
+        created_mappings = []
+        for item in mappings_data:
+            pattern_id = item.pop("pattern_id", None)
+            custom_pattern_id = item.pop("custom_pattern_id", None)
+            
+            mapping, _ = HapticActionMapping.objects.update_or_create(
+                user=request.user,
+                action=item.get("action"),
+                defaults=item
+            )
+            
+            # Set pattern relationships
+            if pattern_id:
+                try:
+                    mapping.pattern = HapticPattern.objects.get(id=pattern_id)
+                except HapticPattern.DoesNotExist:
+                    pass
+            
+            if custom_pattern_id:
+                try:
+                    mapping.custom_pattern = CustomHapticPattern.objects.get(
+                        id=custom_pattern_id, user=request.user
+                    )
+                except CustomHapticPattern.DoesNotExist:
+                    pass
+            
+            mapping.save()
+            created_mappings.append(mapping)
+        
+        return MobileResponse.success(
+            data={"updated_count": len(created_mappings)},
+            message="Haptic mappings updated successfully"
         )
