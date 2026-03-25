@@ -3,12 +3,17 @@ Stripe payment service for CampusHub.
 Handles subscription management, payment processing, and webhooks.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-import stripe
+try:
+    import stripe
+except ImportError:  # pragma: no cover - exercised in production fallback
+    stripe = None
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -17,10 +22,22 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+class StripeUnavailableError(RuntimeError):
+    """Raised when Stripe SDK is required but unavailable."""
+
+
+def _require_stripe_sdk() -> None:
+    if stripe is None:
+        raise StripeUnavailableError(
+            "Stripe SDK is not installed. Add `stripe` to dependencies."
+        )
+
+
 class StripeService:
     """Service for Stripe payment operations."""
 
     def __init__(self):
+        _require_stripe_sdk()
         stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", None)
         self.webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
 
@@ -1068,8 +1085,3 @@ class InAppPurchaseService:
 def get_in_app_purchase_service() -> InAppPurchaseService:
     """Get in-app purchase service instance."""
     return InAppPurchaseService()
-
-
-# Initialize service
-stripe_service = get_stripe_service()
-iap_service = get_in_app_purchase_service()
