@@ -4,6 +4,12 @@ from .base import *  # noqa: F401, F403
 
 DEBUG = True
 
+# Keep test environment lean.
+INSTALLED_APPS = [app for app in INSTALLED_APPS if app != "debug_toolbar"]  # noqa: F405
+MIDDLEWARE = [
+    mw for mw in MIDDLEWARE if mw != "debug_toolbar.middleware.DebugToolbarMiddleware"  # noqa: F405
+]
+
 # Fast, isolated test database.
 DATABASES = {
     "default": {
@@ -42,6 +48,13 @@ CHANNEL_LAYERS = {
 
 # Allow narrowing URL loading for targeted test runs.
 ROOT_URLCONF = config("TEST_ROOT_URLCONF", default="config.urls")  # noqa: F405
+
+# Encryption behavior for tests:
+# keep encryption disabled but allow fallback plaintext marker so
+# encrypted model fields can be created in fixtures/migrations.
+ENCRYPTION_ENABLED = False
+ENCRYPTION_ALLOW_FALLBACK = True
+ENCRYPTION_WARN_ON_FALLBACK = False
 
 # Keep logging simple during tests.
 LOGGING = {

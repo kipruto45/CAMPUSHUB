@@ -3,6 +3,7 @@ Profile services for handling profile-related business logic.
 """
 
 import re
+from datetime import timezone as datetime_timezone
 
 from django.db.models import Count
 
@@ -217,7 +218,7 @@ def register_user_session(user, request, refresh_token: str | None) -> str | Non
         session_key = str(token.get("jti") or "")[:40] or str(refresh_token)[:40]
         exp = token.get("exp")
         expires_at = (
-            timezone.datetime.fromtimestamp(exp, tz=timezone.utc)
+            timezone.datetime.fromtimestamp(exp, tz=datetime_timezone.utc)
             if exp
             else timezone.now() + timezone.timedelta(days=30)
         )
@@ -444,3 +445,273 @@ class ProfileStatsService:
             }
             for activity in activities
         ]
+
+
+class PasswordlessAuthService:
+    """
+    Service wrapper for passwordless authentication.
+    Provides unified interface for magic links and passkeys.
+    """
+
+    @staticmethod
+    def request_magic_link(email: str, ip_address: str = None) -> dict:
+        """
+        Request a magic link for a user.
+
+        Args:
+            email: User's email address
+            ip_address: Optional IP address for rate limiting
+
+        Returns:
+            dict: Result with success status and message
+        """
+        from .auth_magic_links import magic_link_service
+
+        result = magic_link_service.request_magic_link(email, ip_address)
+        return {
+            "success": result.success,
+            "message": result.message,
+        }
+
+    @staticmethod
+    def consume_magic_link(
+        token: str,
+        ip_address: str = None,
+        user_agent: str = "",
+    ) -> dict:
+        """
+        Consume a magic link token and get JWT tokens.
+
+        Args:
+            token: The magic link token
+
+        Returns:
+            dict: Result with JWT tokens or error
+        """
+        from .auth_magic_links import magic_link_service
+
+        result = magic_link_service.consume_magic_link(
+            token,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if result.success:
+            return {
+                "success": True,
+                "message": result.message,
+                "access": result.access,
+                "refresh": result.refresh,
+                "user_id": result.user_id,
+            }
+        return {
+            "success": False,
+            "message": result.message,
+        }
+
+    @staticmethod
+    def get_passkey_registration_options(user, passkey_name: str = None) -> dict:
+        """
+        Get options for registering a new passkey.
+
+        Args:
+            user: The user registering the passkey
+            passkey_name: Optional name for the passkey
+
+        Returns:
+            dict: Result with registration options
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        result = passkey_service.get_registration_options(user, passkey_name)
+        return {
+            "success": result.success,
+            "message": result.message,
+            "options": result.options,
+        }
+
+    @staticmethod
+    def verify_passkey_registration(user, credential_data: dict, passkey_name: str = None) -> dict:
+        """
+        Verify passkey registration.
+
+        Args:
+            user: The user registering the passkey
+            credential_data: The credential data from the client
+            passkey_name: Optional name for the passkey
+
+        Returns:
+            dict: Result with passkey ID
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        result = passkey_service.verify_registration(user, credential_data, passkey_name)
+        return {
+            "success": result.success,
+            "message": result.message,
+            "passkey_id": result.passkey_id,
+        }
+
+    @staticmethod
+    def get_passkey_authentication_options(user=None) -> dict:
+        """
+        Get options for passkey authentication.
+
+        Args:
+            user: Optional user to get credentials for
+
+        Returns:
+            dict: Result with authentication options
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        result = passkey_service.get_authentication_options(user)
+        return {
+            "success": result.success,
+            "message": result.message,
+            "options": result.options,
+        }
+
+    @staticmethod
+    def verify_passkey_authentication(credential_data: dict, expected_user_id: int = None) -> dict:
+        """
+        Verify passkey authentication.
+
+        Args:
+            credential_data: The credential data from the client
+            expected_user_id: Optional expected user ID
+
+        Returns:
+            dict: Result with user ID and JWT tokens
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        result = passkey_service.verify_authentication(credential_data, expected_user_id)
+        if result.success:
+            # Generate JWT tokens
+            from django.contrib.auth import get_user_model
+            from rest_framework_simplejwt.tokens import RefreshToken
+
+            User = get_user_model()
+            user = User.objects.get(id=result.user_id)
+            refresh = RefreshToken.for_user(user)
+
+            return {
+                "success": True,
+                "message": result.message,
+                "user_id": result.user_id,
+                "passkey_id": result.passkey_id,
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            }
+        return {
+            "success": False,
+            "message": result.message,
+        }
+
+    @staticmethod
+    def list_user_passkeys(user) -> list:
+        """
+        List all passkeys for a user.
+
+        Args:
+            user: The user
+
+        Returns:
+            list: List of passkey info
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE, PasskeyInfo
+
+        if not FIDO2_AVAILABLE:
+            return []
+
+        passkeys = passkey_service.list_passkeys(user)
+        return [
+            {
+                "id": pk.id,
+                "name": pk.name,
+                "credential_id": pk.credential_id,
+                "sign_count": pk.sign_count,
+                "backup_eligible": pk.backup_eligible,
+                "backup_state": pk.backup_state,
+                "created_at": pk.created_at,
+                "last_used_at": pk.last_used_at,
+            }
+            for pk in passkeys
+        ]
+
+    @staticmethod
+    def delete_user_passkey(user, passkey_id: int) -> dict:
+        """
+        Delete a passkey for a user.
+
+        Args:
+            user: The user
+            passkey_id: The passkey ID to delete
+
+        Returns:
+            dict: Result with success status
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        success, message = passkey_service.delete_passkey(user, passkey_id)
+        return {
+            "success": success,
+            "message": message,
+        }
+
+    @staticmethod
+    def update_passkey_name(user, passkey_id: int, new_name: str) -> dict:
+        """
+        Update a passkey's name.
+
+        Args:
+            user: The user
+            passkey_id: The passkey ID
+            new_name: New name for the passkey
+
+        Returns:
+            dict: Result with success status
+        """
+        from .auth_passkeys import passkey_service, FIDO2_AVAILABLE
+
+        if not FIDO2_AVAILABLE:
+            return {
+                "success": False,
+                "message": "Passkey authentication is not available.",
+            }
+
+        success, message = passkey_service.update_passkey_name(user, passkey_id, new_name)
+        return {
+            "success": success,
+            "message": message,
+        }

@@ -5,6 +5,7 @@ URL configuration for CampusHub project.
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView
@@ -12,6 +13,7 @@ from drf_spectacular.views import (SpectacularAPIView, SpectacularRedocView,
                                    SpectacularSwaggerView)
 from graphene_django.views import GraphQLView
 
+from apps.admin_management import views as admin_management_views
 from apps.api import deeplinks as deeplink_views
 from apps.library import views as library_views
 from apps.social import views as social_views
@@ -21,9 +23,23 @@ from config.schema_fallback import apply_schema_fallback
 # Keep OpenAPI generation resilient for legacy APIViews without serializer_class.
 apply_schema_fallback()
 
+
+def v2_not_implemented(request, *args, **kwargs):
+    """Stub endpoint for future API v2 features."""
+    version = kwargs.get("version", "v2")
+    return JsonResponse(
+        {
+            "detail": "Endpoint not yet implemented",
+            "version": version,
+            "status": "not_implemented",
+        },
+        status=501,
+    )
+
 urlpatterns = [
     # Root
     path("", RedirectView.as_view(url="/api/docs/", permanent=False)),
+    path("offline/", RedirectView.as_view(url="/static/pwa/offline.html", permanent=False), name="offline"),
     path(
         "share/library/<uuid:file_id>/<str:token>/",
         library_views.SharedLibraryFileView.as_view(),
@@ -33,6 +49,11 @@ urlpatterns = [
         "groups/invite/<str:token>/",
         social_views.StudyGroupInviteLandingView.as_view(),
         name="study-group-invite-landing",
+    ),
+    path(
+        "role-invite/<str:token>/",
+        admin_management_views.AdminRoleInvitationLandingView.as_view(),
+        name="role-invitation-landing",
     ),
     path(
         "resources/<slug:slug>/",
@@ -58,7 +79,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # Health checks
     path("health/", include("apps.core.health_urls")),
-    # API Documentation
+    # API Documentation (shared)
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",
@@ -66,56 +87,108 @@ urlpatterns = [
         name="swagger-ui",
     ),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
-    # Authentication endpoints
-    path("api/auth/", include("apps.accounts.urls")),
-    # Faculty endpoints
-    path("api/", include("apps.faculties.urls")),
-    # Course endpoints
-    path("api/", include("apps.courses.urls")),
-    # Resource endpoints
-    path("api/", include("apps.resources.urls")),
-    # Bookmark endpoints
-    path("api/", include("apps.bookmarks.urls")),
-    # Comment endpoints
-    path("api/", include("apps.comments.urls")),
-    # Rating endpoints
-    path("api/", include("apps.ratings.urls")),
-    # Download endpoints
-    path("api/downloads/", include("apps.downloads.urls")),
-    # Storage endpoints
-    path("api/storage/", include("apps.core.storage.urls")),
-    # Activity endpoints
-    path("api/activity/", include("apps.activity.urls")),
-    # Favorites endpoints
-    path("api/favorites/", include("apps.favorites.urls")),
-    # Announcements endpoints
-    path("api/announcements/", include("apps.announcements.urls")),
-    # Admin Management endpoints
-    path("api/admin-management/", include("apps.admin_management.urls")),
-    # Notification endpoints
-    path("api/", include("apps.notifications.urls")),
-    # Search endpoints
-    path("api/search/", include("apps.search.urls")),
-    # Analytics endpoints
-    path("api/analytics/", include("apps.analytics.urls")),
-    # Dashboard endpoints
-    path("api/dashboard/", include("apps.dashboard.urls")),
-    # Moderation endpoints
-    path("api/moderation/", include("apps.moderation.urls")),
-    # Report endpoints
-    path("api/", include("apps.reports.urls")),
-    # Library endpoints (Storage & Trash Management)
-    path("api/library/", include("apps.library.urls")),
-    # Recommendation endpoints
-    path("api/recommendations/", include("apps.recommendations.urls")),
-    # Gamification endpoints
-    path("api/gamification/", include("apps.gamification.urls")),
-    # Social / study groups endpoints
-    path("api/social/", include("apps.social.urls")),
+    # Versioned API namespaces
+    path("api/v1/", include(([
+        path("auth/", include("apps.accounts.urls")),
+        path("", include("apps.faculties.urls")),
+        path("", include("apps.courses.urls")),
+        path("", include("apps.resources.urls")),
+        path("", include("apps.bookmarks.urls")),
+        path("", include("apps.comments.urls")),
+        path("", include("apps.ratings.urls")),
+        path("downloads/", include("apps.downloads.urls")),
+        path("storage/", include("apps.core.storage.urls")),
+        path("activity/", include("apps.activity.urls")),
+        path("favorites/", include("apps.favorites.urls")),
+        path("announcements/", include("apps.announcements.urls")),
+        path("calendar/", include("apps.calendar.urls")),
+        path("admin-management/", include("apps.admin_management.urls")),
+        path("", include("apps.notifications.urls")),
+        path("search/", include("apps.search.urls")),
+        path("analytics/", include("apps.analytics.urls")),
+        path("dashboard/", include("apps.dashboard.urls")),
+        path("moderation/", include("apps.moderation.urls")),
+        path("", include("apps.reports.urls")),
+        path("library/", include("apps.library.urls")),
+        path("recommendations/", include("apps.recommendations.urls")),
+        path("gamification/", include("apps.gamification.urls")),
+        path("social/", include("apps.social.urls")),
+        path("payments/", include("apps.payments.urls")),
+        path("cloud-storage/", include("apps.cloud_storage.urls")),
+        path("ai/", include("apps.ai.urls")),
+        path("live-rooms/", include("apps.live_rooms.urls")),
+        path("learning/", include("apps.learning_analytics.urls")),
+        path("calendar-sync/", include("apps.calendar_sync.urls")),
+        path(
+            "integrations/google-classroom/",
+            include("apps.integrations.google_classroom.urls"),
+        ),
+        path(
+            "integrations/microsoft-teams/",
+            include("apps.integrations.microsoft_teams.urls"),
+        ),
+        path("institutions/", include("apps.institutions.urls")),
+        path("tutoring/", include("apps.peer_tutoring.urls")),
+        path("certificates/", include("apps.certificates.urls")),
+        path("", include("apps.api.urls")),
+    ], "api-v1"), namespace="api-v1"), {"version": "v1"}),
+    # Mobile API namespace (legacy alias used by the Expo app + infra checks)
+    path("api/", include(("apps.api.urls", "api"), namespace="api")),
+    # Direct namespaced aliases used by tests and integrations.
+    path("api/auth/", include(("apps.accounts.urls", "accounts"), namespace="accounts")),
+    path("api/", include(("apps.resources.urls", "resources"), namespace="resources")),
+    # Legacy unversioned alias (deprecated)
+    path("api/", include(([
+        path("auth/", include("apps.accounts.urls")),
+        path("", include("apps.faculties.urls")),
+        path("", include("apps.courses.urls")),
+        path("", include("apps.resources.urls")),
+        path("", include("apps.bookmarks.urls")),
+        path("", include("apps.comments.urls")),
+        path("", include("apps.ratings.urls")),
+        path("downloads/", include("apps.downloads.urls")),
+        path("storage/", include("apps.core.storage.urls")),
+        path("activity/", include("apps.activity.urls")),
+        path("favorites/", include("apps.favorites.urls")),
+        path("announcements/", include("apps.announcements.urls")),
+        path("calendar/", include("apps.calendar.urls")),
+        path("admin-management/", include("apps.admin_management.urls")),
+        path("", include("apps.notifications.urls")),
+        path("search/", include("apps.search.urls")),
+        path("analytics/", include("apps.analytics.urls")),
+        path("dashboard/", include("apps.dashboard.urls")),
+        path("moderation/", include("apps.moderation.urls")),
+        path("", include("apps.reports.urls")),
+        path("library/", include("apps.library.urls")),
+        path("recommendations/", include("apps.recommendations.urls")),
+        path("gamification/", include("apps.gamification.urls")),
+        path("social/", include("apps.social.urls")),
+        path("payments/", include("apps.payments.urls")),
+        path("cloud-storage/", include("apps.cloud_storage.urls")),
+        path("ai/", include("apps.ai.urls")),
+        path("live-rooms/", include("apps.live_rooms.urls")),
+        path("notes/", include("apps.notes.urls")),
+        path("learning/", include("apps.learning_analytics.urls")),
+        path("calendar-sync/", include("apps.calendar_sync.urls")),
+        path(
+            "integrations/google-classroom/",
+            include("apps.integrations.google_classroom.urls"),
+        ),
+        path(
+            "integrations/microsoft-teams/",
+            include("apps.integrations.microsoft_teams.urls"),
+        ),
+        path("institutions/", include("apps.institutions.urls")),
+        path("tutoring/", include("apps.peer_tutoring.urls")),
+        path("certificates/", include("apps.certificates.urls")),
+    ], "api-legacy"), namespace="api-legacy"), {"version": "legacy"}),
+    # API v2 stub namespace
+    path("api/v2/", include(([
+        path("status/", v2_not_implemented, {"version": "v2"}, name="status"),
+        path("placeholder/", v2_not_implemented, {"version": "v2"}, name="placeholder"),
+    ], "api-v2"), namespace="api-v2"), {"version": "v2"}),
     # GraphQL endpoint
     path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=settings.DEBUG))),
-    # Mobile API endpoints
-    path("api/", include("apps.api.urls")),
 ]
 
 # Debug toolbar URLs (development only).
