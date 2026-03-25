@@ -163,6 +163,40 @@ urlpatterns = [
     path(
         "units/<uuid:unit_id>/", views.AdminUnitDetailView.as_view(), name="unit-detail"
     ),
+    # Referral Management
+    path("referrals/", views.AdminReferralListView.as_view(), name="referral-list"),
+    path(
+        "referrals/<uuid:referral_id>/",
+        views.AdminReferralDetailView.as_view(),
+        name="referral-detail",
+    ),
+    path(
+        "referrals/reward-tiers/",
+        views.AdminRewardTierListView.as_view(),
+        name="referral-reward-tier-list",
+    ),
+    path(
+        "referrals/reward-tiers/<int:tier_id>/",
+        views.AdminRewardTierDetailView.as_view(),
+        name="referral-reward-tier-detail",
+    ),
+    # Payments Management
+    path("payments/", views.AdminPaymentListView.as_view(), name="admin-payment-list"),
+    path(
+        "payments/<uuid:payment_id>/",
+        views.AdminPaymentDetailView.as_view(),
+        name="admin-payment-detail",
+    ),
+    path(
+        "subscriptions/",
+        views.AdminSubscriptionListView.as_view(),
+        name="admin-subscription-list",
+    ),
+    path(
+        "subscriptions/<uuid:subscription_id>/",
+        views.AdminSubscriptionDetailView.as_view(),
+        name="admin-subscription-detail",
+    ),
     # Backup & System
     path("backup/", backup.create_backup, name="backup-create"),
     path("system-stats/", backup.system_stats, name="system-stats"),

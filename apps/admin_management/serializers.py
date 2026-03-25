@@ -16,6 +16,8 @@ from apps.admin_management.services import (
 from apps.announcements.models import Announcement
 from apps.courses.models import Course, Unit
 from apps.faculties.models import Department, Faculty
+from apps.payments.models import Payment, Subscription
+from apps.referrals.models import Referral, RewardTier
 from apps.reports.models import Report
 from apps.resources.models import Resource
 from apps.social.models import StudyGroup
@@ -801,3 +803,118 @@ class AdminDashboardSerializer(serializers.Serializer):
     moderation = serializers.DictField()
     recent_resources = serializers.ListField()
     recent_reports = serializers.ListField()
+
+
+class AdminReferralSerializer(serializers.ModelSerializer):
+    """Serializer for admin referral management."""
+
+    referrer_name = serializers.SerializerMethodField()
+    referee_name = serializers.SerializerMethodField()
+    referral_code_value = serializers.CharField(source="referral_code.code", read_only=True)
+
+    class Meta:
+        model = Referral
+        fields = [
+            "id",
+            "referrer",
+            "referrer_name",
+            "referee",
+            "referee_name",
+            "referral_code",
+            "referral_code_value",
+            "email",
+            "status",
+            "rewards_claimed",
+            "subscribed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_referrer_name(self, obj) -> str:
+        return _user_display_name(obj.referrer)
+
+    def get_referee_name(self, obj) -> str:
+        if not obj.referee:
+            return ""
+        return _user_display_name(obj.referee)
+
+
+class AdminRewardTierSerializer(serializers.ModelSerializer):
+    """Serializer for admin reward tier management."""
+
+    class Meta:
+        model = RewardTier
+        fields = [
+            "id",
+            "name",
+            "min_referrals",
+            "points",
+            "premium_days",
+            "badge",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class AdminPaymentSerializer(serializers.ModelSerializer):
+    """Serializer for admin payment management."""
+
+    user_name = serializers.SerializerMethodField()
+    plan_name = serializers.CharField(source="subscription.plan.name", read_only=True)
+
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "subscription",
+            "plan_name",
+            "payment_type",
+            "amount",
+            "currency",
+            "status",
+            "description",
+            "stripe_payment_intent_id",
+            "stripe_invoice_id",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)
+
+
+class AdminSubscriptionSerializer(serializers.ModelSerializer):
+    """Serializer for admin subscription management."""
+
+    user_name = serializers.SerializerMethodField()
+    plan_name = serializers.CharField(source="plan.name", read_only=True)
+
+    class Meta:
+        model = Subscription
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "plan",
+            "plan_name",
+            "status",
+            "billing_period",
+            "current_period_start",
+            "current_period_end",
+            "cancel_at_period_end",
+            "canceled_at",
+            "trial_start",
+            "trial_end",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)

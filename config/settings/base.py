@@ -821,7 +821,7 @@ JAZZMIN_SETTINGS = {
     "show_sidebar": True,
     "show_ui_builder": False,
     "navigation_expanded": True,
-    "order_with_respect_to": ["auth", "accounts", "resources"],
+    "order_with_respect_to": ["auth", "accounts", "resources", "referrals", "payments"],
     "icons": {
         "accounts.User": "fas fa-users",
         "accounts.Profile": "fas fa-user-circle",
@@ -836,6 +836,66 @@ JAZZMIN_SETTINGS = {
         "downloads.Download": "fas fa-download",
         "notifications.Notification": "fas fa-bell",
         "moderation.ModerationLog": "fas fa-gavel",
+        "referrals.ReferralCode": "fas fa-code",
+        "referrals.Referral": "fas fa-user-plus",
+        "referrals.RewardTier": "fas fa-trophy",
+        "referrals.RewardHistory": "fas fa-history",
+        "payments.Plan": "fas fa-credit-card",
+        "payments.Subscription": "fas fa-sync",
+        "payments.Payment": "fas fa-money-bill",
+        "payments.Invoice": "fas fa-file-invoice",
+        "payments.PromoCode": "fas fa-tag",
+    },
+    "custom_links": {
+        "payments": [
+            {
+                "name": "All Payments",
+                "url": "/admin/payments/payment/",
+                "icon": "fas fa-money-bill-wave",
+            },
+            {
+                "name": "Subscriptions",
+                "url": "/admin/payments/subscription/",
+                "icon": "fas fa-sync-alt",
+            },
+            {
+                "name": "Plans",
+                "url": "/admin/payments/plan/",
+                "icon": "fas fa-layer-group",
+            },
+            {
+                "name": "Invoices",
+                "url": "/admin/payments/invoice/",
+                "icon": "fas fa-receipt",
+            },
+            {
+                "name": "Promo Codes",
+                "url": "/admin/payments/promocode/",
+                "icon": "fas fa-tag",
+            },
+        ],
+        "referrals": [
+            {
+                "name": "Referral Codes",
+                "url": "/admin/referrals/referralcode/",
+                "icon": "fas fa-code",
+            },
+            {
+                "name": "All Referrals",
+                "url": "/admin/referrals/referral/",
+                "icon": "fas fa-users",
+            },
+            {
+                "name": "Reward Tiers",
+                "url": "/admin/referrals/rewardtier/",
+                "icon": "fas fa-trophy",
+            },
+            {
+                "name": "Reward History",
+                "url": "/admin/referrals/rewardhistory/",
+                "icon": "fas fa-history",
+            },
+        ],
     },
 }
 

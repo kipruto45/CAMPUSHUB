@@ -26,6 +26,9 @@ from apps.admin_management.serializers import (
     AdminAnnouncementSerializer, AdminCourseSerializer,
     AdminDashboardSerializer, AdminDepartmentSerializer,
     AdminInvitationBatchSerializer,
+    AdminPaymentSerializer,
+    AdminReferralSerializer,
+    AdminRewardTierSerializer,
     AdminRoleInvitationAcceptSerializer, AdminRoleInvitationCreateSerializer,
     AdminRoleInvitationBulkCreateSerializer,
     AdminRoleInvitationSerializer,
@@ -34,6 +37,7 @@ from apps.admin_management.serializers import (
     AdminReportSerializer, AdminReportUpdateSerializer,
     AdminResourceRejectSerializer, AdminResourceReviewSerializer,
     AdminResourceSerializer, AdminStudyGroupSerializer,
+    AdminSubscriptionSerializer,
     AdminStudyGroupUpdateSerializer, AdminUnitSerializer, AdminUserDetailSerializer,
     AdminUserListSerializer, AdminUserRoleUpdateSerializer,
     AdminUserStatusUpdateSerializer)
@@ -63,6 +67,8 @@ from apps.announcements.models import Announcement
 from apps.core.pagination import StandardPagination
 from apps.courses.models import Course, Unit
 from apps.faculties.models import Department, Faculty
+from apps.payments.models import Payment, Subscription
+from apps.referrals.models import Referral, RewardTier
 from apps.reports.models import Report
 from apps.resources.models import Resource
 from apps.social.models import StudyGroup
@@ -1304,6 +1310,182 @@ class AdminSystemHealthView(APIView):
 
 
 # ===========================================
+# REFERRAL & PAYMENTS MANAGEMENT VIEWS
+# ===========================================
+
+class AdminReferralListView(generics.ListAPIView):
+    """List referrals for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminReferralSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        queryset = Referral.objects.select_related(
+            "referrer", "referee", "referral_code"
+        ).order_by("-created_at")
+
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        rewards_claimed = self.request.query_params.get("rewards_claimed")
+        if rewards_claimed is not None:
+            queryset = queryset.filter(
+                rewards_claimed=str(rewards_claimed).strip().lower() == "true"
+            )
+
+        referrer_id = self.request.query_params.get("referrer")
+        if referrer_id:
+            queryset = queryset.filter(referrer_id=referrer_id)
+
+        search = str(self.request.query_params.get("search", "")).strip()
+        if search:
+            queryset = queryset.filter(
+                Q(email__icontains=search)
+                | Q(referral_code__code__icontains=search)
+                | Q(referrer__email__icontains=search)
+                | Q(referee__email__icontains=search)
+            )
+
+        return queryset
+
+
+class AdminReferralDetailView(generics.RetrieveAPIView):
+    """Retrieve a single referral."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminReferralSerializer
+    lookup_url_kwarg = "referral_id"
+
+    def get_queryset(self):
+        return Referral.objects.select_related("referrer", "referee", "referral_code")
+
+
+class AdminRewardTierListView(generics.ListCreateAPIView):
+    """List and create reward tiers for referrals."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminRewardTierSerializer
+    queryset = RewardTier.objects.all().order_by("min_referrals")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            queryset = queryset.filter(is_active=str(is_active).strip().lower() == "true")
+        return queryset
+
+
+class AdminRewardTierDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a reward tier."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminRewardTierSerializer
+    lookup_url_kwarg = "tier_id"
+    queryset = RewardTier.objects.all()
+
+
+class AdminPaymentListView(generics.ListAPIView):
+    """List payments for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminPaymentSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        queryset = Payment.objects.select_related(
+            "user", "subscription", "subscription__plan"
+        ).order_by("-created_at")
+
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        payment_type = self.request.query_params.get("payment_type")
+        if payment_type:
+            queryset = queryset.filter(payment_type=payment_type)
+
+        currency = self.request.query_params.get("currency")
+        if currency:
+            queryset = queryset.filter(currency__iexact=currency)
+
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        search = str(self.request.query_params.get("search", "")).strip()
+        if search:
+            queryset = queryset.filter(
+                Q(user__email__icontains=search)
+                | Q(user__full_name__icontains=search)
+                | Q(stripe_payment_intent_id__icontains=search)
+                | Q(stripe_invoice_id__icontains=search)
+            )
+
+        return queryset
+
+
+class AdminPaymentDetailView(generics.RetrieveAPIView):
+    """Retrieve a single payment."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminPaymentSerializer
+    lookup_url_kwarg = "payment_id"
+
+    def get_queryset(self):
+        return Payment.objects.select_related("user", "subscription", "subscription__plan")
+
+
+class AdminSubscriptionListView(generics.ListAPIView):
+    """List subscriptions for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSubscriptionSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        queryset = Subscription.objects.select_related("user", "plan").order_by("-created_at")
+
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        billing_period = self.request.query_params.get("billing_period")
+        if billing_period:
+            queryset = queryset.filter(billing_period=billing_period)
+
+        plan_id = self.request.query_params.get("plan")
+        if plan_id:
+            queryset = queryset.filter(plan_id=plan_id)
+
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        search = str(self.request.query_params.get("search", "")).strip()
+        if search:
+            queryset = queryset.filter(
+                Q(user__email__icontains=search)
+                | Q(user__full_name__icontains=search)
+                | Q(stripe_subscription_id__icontains=search)
+            )
+
+        return queryset
+
+
+class AdminSubscriptionDetailView(generics.RetrieveAPIView):
+    """Retrieve a single subscription."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSubscriptionSerializer
+    lookup_url_kwarg = "subscription_id"
+
+    def get_queryset(self):
+        return Subscription.objects.select_related("user", "plan")
+
+
+# ===========================================
 # GAMIFICATION MANAGEMENT VIEWS
 # ===========================================
 
@@ -2541,7 +2723,8 @@ class AdminFeatureAccessView(APIView):
             all_features = [
                 'manage_users', 'manage_faculties', 'manage_departments',
                 'moderate_content', 'view_analytics', 'export_data',
-                'system_settings', 'manage_billing'
+                'system_settings', 'manage_billing',
+                'manage_referrals', 'manage_payments'
             ]
             features = all_features
         

@@ -103,6 +103,8 @@ class MultiTenantAdminService:
             'can_moderate': True,
             'can_view_analytics': role in [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN, AdminRole.FACULTY_ADMIN],
             'can_export': role in [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
+            'can_manage_referrals': role in [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
+            'can_manage_payments': role in [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
         }
         
         # Add scope-specific info
@@ -168,6 +170,8 @@ class MultiTenantAdminService:
             'export_data': [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
             'system_settings': [AdminRole.SUPER_ADMIN],
             'manage_billing': [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
+            'manage_referrals': [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
+            'manage_payments': [AdminRole.SUPER_ADMIN, AdminRole.INSTITUTION_ADMIN],
         }
         
         allowed_roles = feature_permissions.get(feature, [])
@@ -216,6 +220,24 @@ class MultiTenantAdminService:
                 'label': 'User Management',
                 'icon': '👥',
                 'path': '/admin/users/',
+                'permission': 'manage',
+            })
+
+        if MultiTenantAdminService.can_access_admin_feature(user, 'manage_referrals'):
+            base_menu.append({
+                'id': 'referrals',
+                'label': 'Referral System',
+                'icon': '🎯',
+                'path': '/admin/referrals/',
+                'permission': 'manage',
+            })
+
+        if MultiTenantAdminService.can_access_admin_feature(user, 'manage_payments'):
+            base_menu.append({
+                'id': 'payments',
+                'label': 'Payments',
+                'icon': '💳',
+                'path': '/admin/payments/',
                 'permission': 'manage',
             })
         
