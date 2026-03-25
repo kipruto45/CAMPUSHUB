@@ -2261,14 +2261,28 @@ def mobile_leaderboard(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
-@authentication_classes([JWTAuthentication])
+@permission_classes([AllowAny])  # Allow unauthenticated access for mobile health checks
 @throttle_classes([MobileUserRateThrottle])
 def mobile_system_health(request):
     """
     Get system health metrics for admin users.
+    Unauthenticated users get basic status, admin users get full health data.
     """
-    # Only allow admin users
+    # Check if user is authenticated and is admin
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    if not isinstance(request.user, User) or request.user.is_anonymous:
+        # Unauthenticated - return basic status
+        return MobileResponse.success(
+            data={
+                "status": "ok",
+                "message": "Server is running"
+            },
+            request=request
+        )
+    
+    # Only allow admin users for full health data
     if not request.user.is_staff and not request.user.is_superuser:
         return MobileResponse.error(
             message="Admin access required",
