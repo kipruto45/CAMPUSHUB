@@ -12,6 +12,11 @@ from django.core.exceptions import ImproperlyConfigured
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENVIRONMENT = config("ENVIRONMENT", default="development").strip().lower()
+FORCE_SQLITE = config(
+    "FORCE_SQLITE",
+    default="true",
+    cast=lambda value: str(value).strip().lower() in {"1", "true", "yes", "on"},
+)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 _INSECURE_DEV_SECRET = "django-insecure-dev-key-change-in-production"
@@ -214,7 +219,11 @@ def _database_from_url(database_url: str) -> dict:
 
 
 def _resolve_default_database(database_url: str) -> dict:
-    if database_url:
+    is_sqlite_url = database_url.lower().startswith(("sqlite://", "sqlite3://"))
+
+    if database_url and not FORCE_SQLITE:
+        return _database_from_url(database_url)
+    if database_url and is_sqlite_url:
         return _database_from_url(database_url)
 
     sqlite_path_env = config("SQLITE_PATH", default="").strip()
@@ -526,9 +535,18 @@ CLOUDINARY_API_SECRET = config("CLOUDINARY_API_SECRET", default="")
 
 # Force local storage for now (Cloudinary disabled)
 CLOUDINARY_ENABLED = False
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+
+# Django 4.2+ storage configuration (replaces deprecated DEFAULT_FILE_STORAGE).
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 # Firebase Cloud Messaging (FCM) Configuration
 FCM_ENABLED = config(
@@ -658,11 +676,6 @@ _cloudinary_credentials_present = bool(
 )
 # Force disable Cloudinary - use local file storage
 CLOUDINARY_ENABLED = False
-
-# Local file storage (default)
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
-MEDIA_ROOT = BASE_DIR / "media"
-MEDIA_URL = "/media/"
 
 # Email Configuration
 EMAIL_BACKEND = config(
