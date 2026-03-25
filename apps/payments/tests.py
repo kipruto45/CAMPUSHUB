@@ -2,6 +2,7 @@
 Tests for payment WebSocket and webhook functionality.
 """
 
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 from django.contrib.auth import get_user_model
@@ -12,7 +13,7 @@ from decimal import Decimal
 from apps.payments.models import Plan, Subscription, Payment
 from apps.payments.services import StripeService
 from apps.payments.providers import PaymentService
-from apps.payments.providers import handle_paypal_webhook
+from apps.payments.providers import handle_paypal_webhook, handle_mobile_money_webhook
 
 
 @pytest.fixture
@@ -328,6 +329,25 @@ class TestMultiProviderPayments:
         assert payment.status == "partial"
         assert payment.metadata.get("shortfall") == "10.00"
 
+    def test_create_payment_accepts_mpesa_alias(self, db, user):
+        service = PaymentService()
+        service.providers["mobile_money"] = self._stub_provider("MPESA_ALIAS_001")
+
+        result = service.create_payment(
+            provider="mpesa",
+            amount=Decimal("7.00"),
+            currency="KES",
+            description="M-Pesa alias",
+            user=user,
+            payment_type="one_time",
+            phone_number="0712345678",
+        )
+
+        assert result["success"] is True
+        payment = Payment.objects.get(id=result["local_payment_id"])
+        assert payment.metadata.get("provider") == "mobile_money"
+        assert payment.metadata.get("provider_payment_id") == "MPESA_ALIAS_001"
+
     def test_duplicate_success_is_idempotent(self, db, user):
         service = PaymentService()
         service.providers["paypal"] = self._stub_provider("PAYPAL321")
@@ -414,3 +434,102 @@ class TestMultiProviderPayments:
 
         payment = Payment.objects.get(id=result["local_payment_id"])
         assert payment.metadata.get("receipt_url")
+
+    def test_mobile_money_webhook_nested_stk_callback(self, db, user):
+        service = PaymentService()
+        service.providers["mobile_money"] = self._stub_provider("ws_CO_ABC123")
+        result = service.create_payment(
+            provider="mobile_money",
+            amount=Decimal("8.00"),
+            currency="KES",
+            description="MM nested callback",
+            user=user,
+            payment_type="one_time",
+            phone_number="0712345678",
+        )
+
+        payload = {
+            "Body": {
+                "stkCallback": {
+                    "MerchantRequestID": "29115-34620561-1",
+                    "CheckoutRequestID": "ws_CO_ABC123",
+                    "ResultCode": 0,
+                    "ResultDesc": "The service request is processed successfully.",
+                    "CallbackMetadata": {
+                        "Item": [
+                            {"Name": "Amount", "Value": 8},
+                            {"Name": "MpesaReceiptNumber", "Value": "TQ8123XYZ"},
+                            {"Name": "PhoneNumber", "Value": 254712345678},
+                        ]
+                    },
+                }
+            }
+        }
+        response = handle_mobile_money_webhook(payload, "")
+        assert response.get("success") is True
+
+        payment = Payment.objects.get(id=result["local_payment_id"])
+        assert payment.status in ["succeeded", "partial"]
+        assert payment.metadata.get("mpesa_receipt_number") == "TQ8123XYZ"
+
+
+@pytest.mark.django_db
+def test_mpesa_stk_push_create_payment_success(settings, user):
+    settings.MOBILE_MONEY_PROVIDER = "mpesa"
+    settings.MOBILE_MONEY_SHORT_CODE = "174379"
+    settings.MOBILE_MONEY_CONSUMER_KEY = "consumer-key"
+    settings.MOBILE_MONEY_CONSUMER_SECRET = "consumer-secret"
+    settings.MOBILE_MONEY_PASSKEY = "passkey"
+    settings.MOBILE_MONEY_ENV = "sandbox"
+    settings.MOBILE_MONEY_CALLBACK_URL = "https://api.example.com/api/payments/webhook/mobile-money/"
+    settings.MOBILE_MONEY_TIMEOUT_SECONDS = 10
+    settings.BASE_URL = "https://api.example.com"
+
+    class MockResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        @property
+        def ok(self):
+            return 200 <= self.status_code < 300
+
+        def json(self):
+            return self._payload
+
+    with patch(
+        "requests.get",
+        return_value=MockResponse(200, {"access_token": "test-token"}),
+    ) as token_request, patch(
+        "requests.post",
+        return_value=MockResponse(
+            200,
+            {
+                "ResponseCode": "0",
+                "ResponseDescription": "Success. Request accepted for processing",
+                "MerchantRequestID": "29115-34620561-1",
+                "CheckoutRequestID": "ws_CO_999999",
+                "CustomerMessage": "Success. Request accepted for processing",
+            },
+        ),
+    ) as stk_request:
+        service = PaymentService()
+        result = service.create_payment(
+            provider="mpesa",
+            amount=Decimal("100.00"),
+            currency="KES",
+            description="Subscription payment",
+            user=user,
+            payment_type="one_time",
+            phone_number="0712345678",
+        )
+
+    assert token_request.called
+    assert stk_request.called
+    assert result["success"] is True
+    assert result["payment_id"] == "ws_CO_999999"
+
+    payment = Payment.objects.get(id=result["local_payment_id"])
+    assert payment.metadata.get("provider") == "mobile_money"
+    assert payment.metadata.get("provider_payment_id") == "ws_CO_999999"

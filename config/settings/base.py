@@ -410,6 +410,50 @@ AI_CHAT_MAX_TOKENS = config("AI_CHAT_MAX_TOKENS", default=500, cast=int)
 AI_CHAT_TIMEOUT_SECONDS = config("AI_CHAT_TIMEOUT_SECONDS", default=25, cast=int)
 SUMMARIZATION_MODEL = config("SUMMARIZATION_MODEL", default=AI_CHAT_MODEL)
 
+# Payment provider configuration
+PAYMENTS_ENABLED = config(
+    "PAYMENTS_ENABLED",
+    default="true",
+    cast=lambda value: str(value).strip().lower() in {"1", "true", "yes", "on"},
+)
+BASE_URL = str(config("BASE_URL", default="http://localhost:8000")).strip().rstrip("/")
+
+# Stripe
+STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="")
+STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="")
+STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
+
+# PayPal
+PAYPAL_MODE = str(config("PAYPAL_MODE", default="sandbox")).strip().lower() or "sandbox"
+PAYPAL_CLIENT_ID = config("PAYPAL_CLIENT_ID", default="")
+PAYPAL_CLIENT_SECRET = config("PAYPAL_CLIENT_SECRET", default="")
+PAYPAL_TIMEOUT_SECONDS = config("PAYPAL_TIMEOUT_SECONDS", default=30, cast=int)
+
+# Mobile money / M-Pesa
+MOBILE_MONEY_PROVIDER = (
+    str(config("MOBILE_MONEY_PROVIDER", default="mpesa")).strip().lower() or "mpesa"
+)
+MOBILE_MONEY_SHORT_CODE = str(config("MOBILE_MONEY_SHORT_CODE", default="")).strip()
+MOBILE_MONEY_CONSUMER_KEY = str(config("MOBILE_MONEY_CONSUMER_KEY", default="")).strip()
+MOBILE_MONEY_CONSUMER_SECRET = str(
+    config("MOBILE_MONEY_CONSUMER_SECRET", default="")
+).strip()
+MOBILE_MONEY_PASSKEY = str(config("MOBILE_MONEY_PASSKEY", default="")).strip()
+MOBILE_MONEY_ENV = (
+    str(config("MOBILE_MONEY_ENV", default="sandbox")).strip().lower() or "sandbox"
+)
+MOBILE_MONEY_TRANSACTION_TYPE = (
+    str(config("MOBILE_MONEY_TRANSACTION_TYPE", default="CustomerPayBillOnline")).strip()
+    or "CustomerPayBillOnline"
+)
+MOBILE_MONEY_CALLBACK_URL = str(config("MOBILE_MONEY_CALLBACK_URL", default="")).strip()
+MOBILE_MONEY_API_BASE_URL = str(config("MOBILE_MONEY_API_BASE_URL", default="")).strip()
+MOBILE_MONEY_TIMEOUT_SECONDS = config(
+    "MOBILE_MONEY_TIMEOUT_SECONDS",
+    default=30,
+    cast=int,
+)
+
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",

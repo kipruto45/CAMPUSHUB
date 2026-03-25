@@ -21,6 +21,7 @@ cryptography>=41.0,<42.0
 
 # Payments
 stripe>=7.0,<8.0
+requests>=2.31,<3.0
 
 # GraphQL
 graphene>=3.3,<4.0
@@ -41,6 +42,9 @@ channels-redis>=4.1,<5.0
 
 # API Documentation
 drf-spectacular>=0.27,<1.0
+
+# AI / Scientific
+numpy>=2.0,<3.0
 
 # Utilities
 python-slugify>=8.0,<9.0
