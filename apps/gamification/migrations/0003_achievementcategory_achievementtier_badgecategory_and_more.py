@@ -484,10 +484,6 @@ class Migration(migrations.Migration):
             name='slug',
             field=models.SlugField(default='', max_length=100, unique=True),
         ),
-        migrations.AlterUniqueTogether(
-            name='achievement',
-            unique_together={('slug',)},
-        ),
         migrations.AddIndex(
             model_name='leaderboard',
             index=models.Index(fields=['leaderboard_type', 'period', '-created_at'], name='gamificatio_leaderb_9c2283_idx'),
