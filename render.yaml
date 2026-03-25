@@ -3,6 +3,7 @@ services:
     name: campushub-api
     env: python
     buildCommand: |
+      mkdir -p /tmp && \
       pip install -r requirements.txt && \
       python manage.py migrate --noinput && \
       if [ "$RESET_REFERENCE_DATA" = "true" ]; then python manage.py clear_all_data; fi && \
@@ -16,6 +17,12 @@ services:
         value: "False"
       - key: DATABASE_URL
         sync: false
+      - key: FORCE_SQLITE
+        value: "True"
+      - key: SQLITE_PATH
+        value: /tmp/campushub.sqlite3
+      - key: AUTO_MIGRATE_ON_STARTUP
+        value: "False"
       - key: SECRET_KEY
         sync: false
       - key: JWT_SECRET_KEY
