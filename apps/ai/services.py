@@ -6,6 +6,7 @@ Provides semantic search, recommendations, chatbot, and summarization
 import hashlib
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -13,7 +14,6 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error as urlerror, request as urlrequest
 
-import numpy as np
 from django.conf import settings
 from django.utils import timezone
 
@@ -176,7 +176,7 @@ class SemanticSearchService:
             tfidf = []
             for word, count in tf.items():
                 tf_score = count / doc_length
-                idf = np.log(doc_count / (df.get(word, 1) + 1)) + 1
+                idf = math.log(doc_count / (df.get(word, 1) + 1)) + 1
                 tfidf.append((word, tf_score * idf))
             
             tfidf_vectors[i] = sorted(tfidf, key=lambda x: x[1], reverse=True)[:50]
