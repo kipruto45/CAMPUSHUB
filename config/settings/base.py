@@ -257,6 +257,15 @@ DATABASES = {
     "default": default_database,
 }
 
+# Create SQLite database file if it doesn't exist
+if default_database.get("ENGINE") == "django.db.backends.sqlite3":
+    db_path = default_database.get("NAME", "")
+    if db_path and db_path != ":memory:":
+        db_file = Path(db_path)
+        if not db_file.exists():
+            db_file.parent.mkdir(parents=True, exist_ok=True)
+            db_file.touch()
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
