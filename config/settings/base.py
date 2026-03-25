@@ -213,53 +213,17 @@ def _database_from_url(database_url: str) -> dict:
     return db_config
 
 
-def _postgres_database_from_env() -> dict:
-    """Build a PostgreSQL DATABASES['default'] entry from DB_* / POSTGRES_* vars."""
-    return {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config(
-            "DB_NAME",
-            default=config("POSTGRES_DB", default="campushub_db"),
-        ),
-        "USER": config(
-            "DB_USER",
-            default=config("POSTGRES_USER", default="postgres"),
-        ),
-        "PASSWORD": config(
-            "DB_PASSWORD",
-            default=config("POSTGRES_PASSWORD", default=""),
-        ),
-        "HOST": config("DB_HOST", default="localhost"),
-        "PORT": config("DB_PORT", default="5432"),
-    }
-
-
-def _should_use_postgres_in_non_production() -> bool:
-    engine = config("DB_ENGINE", default="").strip().lower()
-    if engine in {"postgres", "postgresql", "pgsql"}:
-        return True
-    return config(
-        "USE_POSTGRES",
-        default="false",
-        cast=lambda value: str(value).strip().lower() in {"1", "true", "yes", "on"},
-    )
-
-
-def _resolve_default_database(environment: str, database_url: str) -> dict:
+def _resolve_default_database(database_url: str) -> dict:
+    default_sqlite_url = "sqlite:////home/kipruto/Desktop/CampusHub/db.sqlite3"
     if database_url:
         return _database_from_url(database_url)
-    if environment == "production" or _should_use_postgres_in_non_production():
-        # Production uses PostgreSQL, and development can opt in via DB_* variables.
-        return _postgres_database_from_env()
-    # Safe local fallback for developer machines and mobile-integration testing.
-    return {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "dev_db.sqlite3",
-    }
+    # Use the same sqlite file for both development and production when DATABASE_URL
+    # is not explicitly provided.
+    return _database_from_url(default_sqlite_url)
 
 
 DATABASE_URL = config("DATABASE_URL", default="").strip()
-default_database = _resolve_default_database(ENVIRONMENT, DATABASE_URL)
+default_database = _resolve_default_database(DATABASE_URL)
 
 DATABASES = {
     "default": default_database,
