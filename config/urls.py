@@ -114,6 +114,7 @@ urlpatterns = [
         path("gamification/", include("apps.gamification.urls")),
         path("social/", include("apps.social.urls")),
         path("payments/", include("apps.payments.urls")),
+        path("referrals/", include("apps.referrals.urls")),
         path("cloud-storage/", include("apps.cloud_storage.urls")),
         path("ai/", include("apps.ai.urls")),
         path("live-rooms/", include("apps.live_rooms.urls")),
