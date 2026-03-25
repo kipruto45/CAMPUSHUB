@@ -172,7 +172,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
         resource.save(update_fields=["is_deleted", "deleted_at", "status"])
         return Response({"restored": True, "status": resource.status})
 
-    def get_queryset(self):
+    def get_queryset(self):       
         from apps.favorites.models import FavoriteType
         request_user = getattr(self.request, "user", None)
         is_authenticated = bool(getattr(request_user, "is_authenticated", False))
