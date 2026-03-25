@@ -19,6 +19,9 @@ qrcode>=7.4,<8.0
 fido2>=1.1,<2.0
 cryptography>=41.0,<42.0
 
+# Payments
+stripe>=7.0,<8.0
+
 # GraphQL
 graphene>=3.3,<4.0
 graphene-django>=3.2,<4.0
