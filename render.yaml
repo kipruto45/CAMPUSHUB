@@ -5,16 +5,23 @@ services:
     buildCommand: |
       pip install -r requirements.txt && \
       python manage.py migrate --noinput && \
-      python manage.py clear_all_data && \
-      python manage.py seed_all_data
+      if [ "$RESET_REFERENCE_DATA" = "true" ]; then python manage.py clear_all_data; fi && \
+      python manage.py seed_all_data && \
+      python manage.py collectstatic --noinput
     startCommand: gunicorn config.wsgi:application
     envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
       - key: DATABASE_URL
-        value: postgresql://campus_db_ztct_user:CN7ifpu0z9JLe461pLxPacnpV9yirSl3@dpg-d6rqio1aae7s73cu5v0g-a/campus_db_ztct
+        sync: false
       - key: SECRET_KEY
-        generateValue: true
+        sync: false
       - key: JWT_SECRET_KEY
-        generateValue: true
+        sync: false
+      - key: RESET_REFERENCE_DATA
+        value: "false"
       - key: FRONTEND_BASE_URL
         value: https://my-cham-a.app
       - key: FRONTEND_URL
