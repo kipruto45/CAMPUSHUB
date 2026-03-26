@@ -208,7 +208,6 @@ class InstitutionRegistrationView(generics.CreateAPIView):
             password=request.data.get('password'),
             full_name=request.data.get('contact_name', ''),
             role='admin',
-            institution=institution,
         )
         
         # Create InstitutionAdmin role
