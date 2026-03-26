@@ -243,6 +243,64 @@ urlpatterns = [
     path("dashboard/widgets/", views.DashboardWidgetsView.as_view(), name="dashboard-widgets"),
     path("dashboard/layouts/", views.DashboardLayoutsView.as_view(), name="dashboard-layouts"),
     path("dashboard/layouts/<str:layout_id>/", views.DashboardLayoutDetailView.as_view(), name="dashboard-layout-detail"),
+
+    # Content Operations
+    path(
+        "calendar/events/",
+        views.AdminContentCalendarEventListCreateView.as_view(),
+        name="content-calendar-events",
+    ),
+    path("incidents/", views.AdminIncidentListCreateView.as_view(), name="incident-list"),
+    path(
+        "incidents/<uuid:incident_id>/status/",
+        views.AdminIncidentStatusUpdateView.as_view(),
+        name="incident-status",
+    ),
+    path("funnels/", views.AdminFunnelListView.as_view(), name="funnel-list"),
+    path(
+        "funnels/<uuid:funnel_id>/dropoff/",
+        views.AdminFunnelDropoffView.as_view(),
+        name="funnel-dropoff",
+    ),
+    path("api-keys/", views.AdminAPIKeyListCreateView.as_view(), name="api-key-list"),
+    path(
+        "api-keys/<uuid:key_id>/",
+        views.AdminAPIKeyDetailView.as_view(),
+        name="api-key-detail",
+    ),
+    path(
+        "api-keys/<uuid:key_id>/revoke/",
+        views.AdminAPIKeyRevokeView.as_view(),
+        name="api-key-revoke",
+    ),
+    path("workflows/", views.AdminWorkflowListCreateView.as_view(), name="workflow-list"),
+    path(
+        "workflows/<uuid:workflow_id>/",
+        views.AdminWorkflowDetailView.as_view(),
+        name="workflow-detail",
+    ),
+    path(
+        "workflows/<uuid:workflow_id>/executions/",
+        views.AdminWorkflowExecutionListView.as_view(),
+        name="workflow-executions",
+    ),
+    path(
+        "workflows/<uuid:workflow_id>/run/",
+        views.AdminWorkflowRunView.as_view(),
+        name="workflow-run",
+    ),
+    path("webhooks/", views.AdminWebhookListCreateView.as_view(), name="webhook-list"),
+    path(
+        "webhooks/<uuid:webhook_id>/",
+        views.AdminWebhookDetailView.as_view(),
+        name="webhook-detail",
+    ),
+    path(
+        "webhooks/<uuid:webhook_id>/test/",
+        views.AdminWebhookTestView.as_view(),
+        name="webhook-test",
+    ),
+    path("audit/", views.AdminAuditLogListView.as_view(), name="audit-log"),
     
     # Multi-tenant Admin
     path("scope/", views.AdminScopeView.as_view(), name="admin-scope"),
@@ -252,6 +310,21 @@ urlpatterns = [
     path("reports/", views.ReportListView.as_view(), name="report-list"),
     path("reports/generate/", views.ReportGenerateView.as_view(), name="report-generate"),
     path("reports/summary/", views.ReportSummaryView.as_view(), name="report-summary"),
+    path(
+        "report-builder/reports/",
+        views.ReportListView.as_view(),
+        name="report-builder-list",
+    ),
+    path(
+        "report-builder/reports/generate/",
+        views.ReportGenerateView.as_view(),
+        name="report-builder-generate",
+    ),
+    path(
+        "report-builder/reports/summary/",
+        views.ReportSummaryView.as_view(),
+        name="report-builder-summary",
+    ),
     
     # Bulk Operations
     path("bulk/resources/update/", views.BulkResourceUpdateView.as_view(), name="bulk-resource-update"),
@@ -259,4 +332,87 @@ urlpatterns = [
     path("bulk/moderation/", views.BulkModerationView.as_view(), name="bulk-moderation"),
     path("bulk/resources/upload/", views.BulkResourceUploadView.as_view(), name="bulk-resource-upload"),
     path("bulk/resources/upload-by-type/", views.BulkResourceByTypeView.as_view(), name="bulk-resource-upload-type"),
+
+    # Calendar Admin URLs
+    path(
+        "academic-calendars/",
+        views.AdminAcademicCalendarListView.as_view(),
+        name="academic-calendar-list",
+    ),
+    path(
+        "academic-calendars/<uuid:calendar_id>/",
+        views.AdminAcademicCalendarDetailView.as_view(),
+        name="academic-calendar-detail",
+    ),
+    path(
+        "timetables/",
+        views.AdminTimetableListView.as_view(),
+        name="timetable-list",
+    ),
+    path(
+        "timetables/<uuid:timetable_id>/",
+        views.AdminTimetableDetailView.as_view(),
+        name="timetable-detail",
+    ),
+    path(
+        "timetable-overrides/",
+        views.AdminTimetableOverrideListView.as_view(),
+        name="timetable-override-list",
+    ),
+    path(
+        "timetable-overrides/<uuid:override_id>/",
+        views.AdminTimetableOverrideDetailView.as_view(),
+        name="timetable-override-detail",
+    ),
+    path(
+        "personal-schedules/",
+        views.AdminPersonalScheduleListView.as_view(),
+        name="personal-schedule-list",
+    ),
+    path(
+        "personal-schedules/<uuid:schedule_id>/",
+        views.AdminPersonalScheduleDetailView.as_view(),
+        name="personal-schedule-detail",
+    ),
+    path(
+        "schedule-exports/",
+        views.AdminScheduleExportListView.as_view(),
+        name="schedule-export-list",
+    ),
+    path(
+        "schedule-exports/<uuid:export_id>/",
+        views.AdminScheduleExportDetailView.as_view(),
+        name="schedule-export-detail",
+    ),
+    # Calendar Sync Admin URLs
+    path(
+        "calendar-accounts/",
+        views.AdminCalendarAccountListView.as_view(),
+        name="calendar-account-list",
+    ),
+    path(
+        "calendar-accounts/<uuid:account_id>/",
+        views.AdminCalendarAccountDetailView.as_view(),
+        name="calendar-account-detail",
+    ),
+    path(
+        "sync-settings/",
+        views.AdminSyncSettingsListView.as_view(),
+        name="sync-settings-list",
+    ),
+    path(
+        "sync-settings/<uuid:settings_id>/",
+        views.AdminSyncSettingsDetailView.as_view(),
+        name="sync-settings-detail",
+    ),
+    path(
+        "synced-events/",
+        views.AdminSyncedEventListView.as_view(),
+        name="synced-event-list",
+    ),
+    path(
+        "synced-events/<uuid:event_id>/",
+        views.AdminSyncedEventDetailView.as_view(),
+        name="synced-event-detail",
+    ),
 ]

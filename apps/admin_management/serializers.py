@@ -4,16 +4,23 @@ from rest_framework import serializers
 
 from apps.accounts.models import User
 from apps.accounts.serializers import ProfileSerializer
+from apps.admin_management.api_keys import APIKey
+from apps.admin_management.funnel import Funnel
+from apps.admin_management.incidents import Incident
 from apps.admin_management.models import (
     AdminInvitationBatch,
     AdminInvitationRole,
     AdminRoleInvitation,
+    ContentCalendarEvent,
 )
 from apps.admin_management.services import (
     actor_can_invite_role,
     build_role_invitation_landing_url,
 )
+from apps.admin_management.webhooks import Webhook
+from apps.admin_management.workflows import Workflow, WorkflowExecution
 from apps.announcements.models import Announcement
+from apps.core.models import AuditLog
 from apps.courses.models import Course, Unit
 from apps.faculties.models import Department, Faculty
 from apps.payments.models import Payment, Subscription
@@ -918,3 +925,720 @@ class AdminSubscriptionSerializer(serializers.ModelSerializer):
 
     def get_user_name(self, obj) -> str:
         return _user_display_name(obj.user)
+
+
+class AdminContentCalendarEventSerializer(serializers.ModelSerializer):
+    """Serializer for admin content calendar events."""
+
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ContentCalendarEvent
+        fields = [
+            "id",
+            "title",
+            "description",
+            "event_type",
+            "status",
+            "start_datetime",
+            "end_datetime",
+            "timezone",
+            "is_all_day",
+            "related_object_type",
+            "related_object_id",
+            "target_faculty_id",
+            "target_department_id",
+            "target_year_level",
+            "is_global",
+            "recurrence_rule",
+            "color",
+            "icon",
+            "created_by",
+            "created_by_name",
+            "published_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_by_name",
+            "published_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_created_by_name(self, obj) -> str:
+        if not obj.created_by:
+            return ""
+        return _user_display_name(obj.created_by)
+
+
+class AdminIncidentSerializer(serializers.ModelSerializer):
+    """Serializer for admin incident management."""
+
+    assigned_to = serializers.SerializerMethodField()
+    reported_by_name = serializers.SerializerMethodField()
+    duration = serializers.IntegerField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Incident
+        fields = [
+            "id",
+            "title",
+            "description",
+            "incident_type",
+            "severity",
+            "status",
+            "started_at",
+            "identified_at",
+            "resolved_at",
+            "closed_at",
+            "affected_systems",
+            "related_resources",
+            "affected_users_count",
+            "impact_summary",
+            "root_cause",
+            "resolution",
+            "assigned_to",
+            "reported_by",
+            "reported_by_name",
+            "source",
+            "duration",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "identified_at",
+            "resolved_at",
+            "closed_at",
+            "reported_by",
+            "reported_by_name",
+            "source",
+            "duration",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_assigned_to(self, obj) -> dict | None:
+        if not obj.assigned_to:
+            return None
+        return {
+            "id": str(obj.assigned_to.id),
+            "name": _user_display_name(obj.assigned_to),
+        }
+
+    def get_reported_by_name(self, obj) -> str:
+        if not obj.reported_by:
+            return ""
+        return _user_display_name(obj.reported_by)
+
+
+class AdminIncidentStatusUpdateSerializer(serializers.Serializer):
+    """Payload for incident status transitions."""
+
+    status = serializers.ChoiceField(choices=Incident.Status.choices)
+    resolution = serializers.CharField(required=False, allow_blank=True)
+
+
+class AdminFunnelSerializer(serializers.ModelSerializer):
+    """Serializer for admin funnel analytics."""
+
+    overall_conversion = serializers.SerializerMethodField()
+    total_users = serializers.SerializerMethodField()
+    steps = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Funnel
+        fields = [
+            "id",
+            "name",
+            "description",
+            "steps",
+            "overall_conversion",
+            "total_users",
+            "time_window_days",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def _get_results(self, obj):
+        results = obj.calculate_conversion()
+        if results and isinstance(results[-1], dict) and "overall_conversion" in results[-1]:
+            return results
+        return results + [{"overall_conversion": 0, "total_users": 0}]
+
+    def get_steps(self, obj) -> list[dict]:
+        return self._get_results(obj)[:-1]
+
+    def get_overall_conversion(self, obj) -> float:
+        summary = self._get_results(obj)[-1]
+        return float(summary.get("overall_conversion") or 0)
+
+    def get_total_users(self, obj) -> int:
+        summary = self._get_results(obj)[-1]
+        return int(summary.get("total_users") or 0)
+
+
+class AdminAPIKeySerializer(serializers.ModelSerializer):
+    """Serializer for admin API key listings."""
+
+    class Meta:
+        model = APIKey
+        fields = [
+            "id",
+            "name",
+            "description",
+            "key_type",
+            "status",
+            "key_prefix",
+            "created_at",
+            "expires_at",
+            "last_used_at",
+            "rate_limit",
+            "rate_limit_remaining",
+            "total_requests",
+            "error_count",
+            "scopes",
+            "allowed_ips",
+            "allowed_origins",
+            "origin",
+            "environment",
+        ]
+        read_only_fields = [
+            "id",
+            "key_prefix",
+            "created_at",
+            "last_used_at",
+            "total_requests",
+            "error_count",
+        ]
+
+
+class AdminAPIKeyCreateSerializer(serializers.Serializer):
+    """Payload for creating admin API keys."""
+
+    name = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    key_type = serializers.ChoiceField(
+        choices=APIKey.KeyType.choices,
+        default=APIKey.KeyType.PERSONAL,
+    )
+    rate_limit = serializers.IntegerField(required=False, min_value=1, default=1000)
+    scopes = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+    )
+    allowed_ips = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+    )
+    allowed_origins = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        allow_empty=True,
+    )
+
+
+class AdminAPIKeyUpdateSerializer(serializers.Serializer):
+    """Payload for updating admin API keys."""
+
+    name = serializers.CharField(required=False, max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.ChoiceField(required=False, choices=APIKey.KeyStatus.choices)
+    rate_limit = serializers.IntegerField(required=False, min_value=1)
+    scopes = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+    )
+    allowed_ips = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+    )
+    allowed_origins = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        allow_empty=True,
+    )
+
+
+class AdminWorkflowSerializer(serializers.ModelSerializer):
+    """Serializer for admin workflow listings."""
+
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Workflow
+        fields = [
+            "id",
+            "name",
+            "description",
+            "trigger_type",
+            "trigger_config",
+            "trigger_event",
+            "schedule_cron",
+            "schedule_interval_minutes",
+            "actions",
+            "conditions",
+            "status",
+            "is_active",
+            "run_on_creation",
+            "last_run_at",
+            "next_run_at",
+            "run_count",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "last_run_at",
+            "next_run_at",
+            "run_count",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_created_by_name(self, obj) -> str:
+        if not obj.created_by:
+            return ""
+        return _user_display_name(obj.created_by)
+
+
+class AdminWorkflowCreateSerializer(serializers.Serializer):
+    """Payload for creating workflows."""
+
+    name = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    trigger_type = serializers.ChoiceField(choices=Workflow.TriggerType.choices)
+    trigger_config = serializers.JSONField(required=False)
+    trigger_event = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    schedule_cron = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    schedule_interval_minutes = serializers.IntegerField(required=False, min_value=1)
+    actions = serializers.ListField(child=serializers.JSONField(), allow_empty=False)
+    conditions = serializers.ListField(child=serializers.JSONField(), required=False)
+    status = serializers.ChoiceField(
+        choices=Workflow.WorkflowStatus.choices,
+        required=False,
+        default=Workflow.WorkflowStatus.DRAFT,
+    )
+    run_on_creation = serializers.BooleanField(required=False, default=False)
+
+
+class AdminWorkflowUpdateSerializer(serializers.Serializer):
+    """Payload for updating workflows."""
+
+    name = serializers.CharField(required=False, max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    trigger_type = serializers.ChoiceField(required=False, choices=Workflow.TriggerType.choices)
+    trigger_config = serializers.JSONField(required=False)
+    trigger_event = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    schedule_cron = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    schedule_interval_minutes = serializers.IntegerField(required=False, min_value=1)
+    actions = serializers.ListField(child=serializers.JSONField(), required=False)
+    conditions = serializers.ListField(child=serializers.JSONField(), required=False)
+    status = serializers.ChoiceField(required=False, choices=Workflow.WorkflowStatus.choices)
+    is_active = serializers.BooleanField(required=False)
+    run_on_creation = serializers.BooleanField(required=False)
+
+
+class AdminWorkflowExecutionSerializer(serializers.ModelSerializer):
+    """Serializer for workflow executions."""
+
+    workflow_name = serializers.CharField(source="workflow.name", read_only=True)
+
+    class Meta:
+        model = WorkflowExecution
+        fields = [
+            "id",
+            "workflow",
+            "workflow_name",
+            "status",
+            "context",
+            "results",
+            "started_at",
+            "completed_at",
+            "error_message",
+        ]
+        read_only_fields = fields
+
+
+class AdminWebhookSerializer(serializers.ModelSerializer):
+    """Serializer for admin webhook management."""
+
+    success_rate = serializers.FloatField(read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Webhook
+        fields = [
+            "id",
+            "name",
+            "description",
+            "url",
+            "status",
+            "secret",
+            "events",
+            "auth_type",
+            "auth_credentials",
+            "is_active",
+            "retry_on_failure",
+            "max_retries",
+            "timeout_seconds",
+            "event_filters",
+            "custom_headers",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+            "total_deliveries",
+            "successful_deliveries",
+            "failed_deliveries",
+            "last_delivered_at",
+            "last_failed_at",
+            "success_rate",
+        ]
+        read_only_fields = [
+            "id",
+            "secret",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+            "total_deliveries",
+            "successful_deliveries",
+            "failed_deliveries",
+            "last_delivered_at",
+            "last_failed_at",
+            "success_rate",
+        ]
+
+    def get_created_by_name(self, obj) -> str:
+        if not obj.created_by:
+            return ""
+        return _user_display_name(obj.created_by)
+
+
+class AdminAuditLogSerializer(serializers.ModelSerializer):
+    """Serializer for audit trail entries."""
+
+    actor = serializers.SerializerMethodField()
+    target = serializers.SerializerMethodField()
+    details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuditLog
+        fields = [
+            "id",
+            "action",
+            "actor",
+            "target",
+            "details",
+            "ip_address",
+            "user_agent",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_actor(self, obj) -> str:
+        if not obj.user:
+            return "System"
+        return _user_display_name(obj.user)
+
+    def get_target(self, obj) -> str:
+        if obj.target_type and obj.target_id:
+            return f"{obj.target_type} #{obj.target_id}"
+        return obj.target_type or ""
+
+    def get_details(self, obj) -> str:
+        return obj.description or ""
+
+
+# ================== Calendar Admin Serializers ==================
+
+
+class AdminAcademicCalendarSerializer(serializers.ModelSerializer):
+    """Serializer for academic calendar admin management."""
+
+    faculty_name = serializers.CharField(source="faculty.name", read_only=True)
+    department_name = serializers.CharField(source="department.name", read_only=True)
+
+    class Meta:
+        from apps.calendar.models import AcademicCalendar
+        model = AcademicCalendar
+        fields = [
+            "id",
+            "name",
+            "faculty",
+            "faculty_name",
+            "department",
+            "department_name",
+            "year",
+            "semester",
+            "start_date",
+            "end_date",
+            "mid_semester_start",
+            "mid_semester_end",
+            "exam_start_date",
+            "exam_end_date",
+            "break_start_date",
+            "break_end_date",
+            "is_active",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class AdminTimetableSerializer(serializers.ModelSerializer):
+    """Serializer for timetable admin management."""
+
+    course_name = serializers.CharField(source="course.name", read_only=True)
+    unit_code = serializers.CharField(source="unit.code", read_only=True)
+    unit_name = serializers.CharField(source="unit.name", read_only=True)
+    instructor_name = serializers.SerializerMethodField()
+    academic_calendar_name = serializers.CharField(source="academic_calendar.name", read_only=True)
+
+    class Meta:
+        from apps.calendar.models import Timetable
+        model = Timetable
+        fields = [
+            "id",
+            "academic_calendar",
+            "academic_calendar_name",
+            "course",
+            "course_name",
+            "unit",
+            "unit_code",
+            "unit_name",
+            "day",
+            "start_time",
+            "end_time",
+            "type",
+            "building",
+            "room",
+            "is_virtual",
+            "virtual_link",
+            "instructor",
+            "instructor_name",
+            "year_of_study",
+            "is_recurring",
+            "weeks",
+            "group_name",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_instructor_name(self, obj) -> str:
+        if obj.instructor:
+            return _user_display_name(obj.instructor)
+        return None
+
+
+class AdminTimetableOverrideSerializer(serializers.ModelSerializer):
+    """Serializer for timetable override admin management."""
+
+    timetable_info = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.calendar.models import TimetableOverride
+        model = TimetableOverride
+        fields = [
+            "id",
+            "timetable",
+            "timetable_info",
+            "date",
+            "override_type",
+            "new_start_time",
+            "new_end_time",
+            "new_building",
+            "new_room",
+            "new_virtual_link",
+            "reason",
+            "notify_students",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_timetable_info(self, obj) -> str:
+        return f"{obj.timetable}"
+
+    def get_created_by_name(self, obj) -> str:
+        if obj.created_by:
+            return _user_display_name(obj.created_by)
+        return None
+
+
+class AdminPersonalScheduleSerializer(serializers.ModelSerializer):
+    """Serializer for personal schedule admin management."""
+
+    user_name = serializers.SerializerMethodField()
+    course_name = serializers.CharField(source="course.name", read_only=True)
+    unit_name = serializers.CharField(source="unit.name", read_only=True)
+
+    class Meta:
+        from apps.calendar.models import PersonalSchedule
+        model = PersonalSchedule
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "title",
+            "description",
+            "category",
+            "date",
+            "start_time",
+            "end_time",
+            "is_all_day",
+            "course",
+            "course_name",
+            "unit",
+            "unit_name",
+            "reminder_minutes",
+            "reminder_sent",
+            "is_recurring",
+            "recurrence_pattern",
+            "is_private",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "reminder_sent", "created_at", "updated_at"]
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)
+
+
+class AdminScheduleExportSerializer(serializers.ModelSerializer):
+    """Serializer for schedule export admin management."""
+
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.calendar.models import ScheduleExport
+        model = ScheduleExport
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "export_type",
+            "external_tokens",
+            "last_sync",
+            "sync_enabled",
+            "sync_official_timetable",
+            "sync_personal_events",
+            "sync_exams",
+            "sync_announcements",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "external_tokens", "last_sync", "created_at", "updated_at"]
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)
+
+
+class AdminCalendarAccountSerializer(serializers.ModelSerializer):
+    """Serializer for calendar account admin management."""
+
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.calendar_sync.models import CalendarAccount
+        model = CalendarAccount
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "provider",
+            "email",
+            "calendar_id",
+            "sync_enabled",
+            "last_sync_at",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "access_token", "refresh_token", "token_expires_at", "created_at", "updated_at"]
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)
+
+
+class AdminSyncSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for sync settings admin management."""
+
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.calendar_sync.models import SyncSettings
+        model = SyncSettings
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "auto_sync",
+            "sync_interval_minutes",
+            "sync_direction",
+            "sync_lectures",
+            "sync_assignments",
+            "sync_exams",
+            "sync_study_sessions",
+            "sync_personal",
+            "notify_before_events",
+            "notify_minutes_before",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_user_name(self, obj) -> str:
+        return _user_display_name(obj.user)
+
+
+class AdminSyncedEventSerializer(serializers.ModelSerializer):
+    """Serializer for synced event admin management."""
+
+    calendar_account_info = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.calendar_sync.models import SyncedEvent
+        model = SyncedEvent
+        fields = [
+            "id",
+            "calendar_account",
+            "calendar_account_info",
+            "external_event_id",
+            "title",
+            "description",
+            "start_time",
+            "end_time",
+            "location",
+            "is_all_day",
+            "attendees",
+            "last_synced_at",
+            "is_deleted",
+        ]
+        read_only_fields = ["id", "last_synced_at"]
+
+    def get_calendar_account_info(self, obj) -> str:
+        return f"{obj.calendar_account.user.email} - {obj.calendar_account.provider}"

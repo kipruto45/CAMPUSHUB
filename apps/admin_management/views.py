@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_view
 from drf_spectacular.plumbing import build_basic_type
@@ -20,13 +21,28 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.accounts.models import User
 from apps.accounts.serializers import UserActivitySerializer, UserSerializer
-from apps.admin_management.models import AdminInvitationRole, AdminRoleInvitation
+from apps.admin_management.api_keys import APIKey
+from apps.admin_management.funnel import Funnel, FunnelAnalyticsService
+from apps.admin_management.incidents import Incident
+from apps.admin_management.models import (
+    AdminInvitationRole,
+    AdminRoleInvitation,
+    ContentCalendarEvent,
+)
 from apps.admin_management.permissions import IsAdmin
 from apps.admin_management.serializers import (
     AdminAnnouncementSerializer, AdminCourseSerializer,
+    AdminAuditLogSerializer,
+    AdminAPIKeyCreateSerializer,
+    AdminAPIKeySerializer,
+    AdminAPIKeyUpdateSerializer,
+    AdminContentCalendarEventSerializer,
     AdminDashboardSerializer, AdminDepartmentSerializer,
     AdminInvitationBatchSerializer,
+    AdminIncidentSerializer,
+    AdminIncidentStatusUpdateSerializer,
     AdminPaymentSerializer,
+    AdminFunnelSerializer,
     AdminReferralSerializer,
     AdminRewardTierSerializer,
     AdminRoleInvitationAcceptSerializer, AdminRoleInvitationCreateSerializer,
@@ -40,7 +56,17 @@ from apps.admin_management.serializers import (
     AdminSubscriptionSerializer,
     AdminStudyGroupUpdateSerializer, AdminUnitSerializer, AdminUserDetailSerializer,
     AdminUserListSerializer, AdminUserRoleUpdateSerializer,
-    AdminUserStatusUpdateSerializer)
+    AdminUserStatusUpdateSerializer,
+    AdminWebhookSerializer,
+    AdminWorkflowCreateSerializer,
+    AdminWorkflowExecutionSerializer,
+    AdminWorkflowSerializer,
+    AdminWorkflowUpdateSerializer,
+    # Calendar serializers
+    AdminAcademicCalendarSerializer, AdminTimetableSerializer,
+    AdminTimetableOverrideSerializer, AdminPersonalScheduleSerializer,
+    AdminScheduleExportSerializer, AdminCalendarAccountSerializer,
+    AdminSyncSettingsSerializer, AdminSyncedEventSerializer)
 from apps.admin_management.services import (announcement_lifecycle_action,
                                             can_manage_target_user,
                                             delete_resource,
@@ -64,6 +90,7 @@ from apps.admin_management.services import (announcement_lifecycle_action,
                                             update_user_role,
                                             update_user_status)
 from apps.announcements.models import Announcement
+from apps.core.models import APIUsageLog, AuditLog
 from apps.core.pagination import StandardPagination
 from apps.courses.models import Course, Unit
 from apps.faculties.models import Department, Faculty
@@ -72,6 +99,8 @@ from apps.referrals.models import Referral, RewardTier
 from apps.reports.models import Report
 from apps.resources.models import Resource
 from apps.social.models import StudyGroup
+from apps.admin_management.webhooks import Webhook, WebhookDelivery
+from apps.admin_management.workflows import Workflow, WorkflowExecution
 
 # Gamification imports (aligned with current gamification models)
 from apps.gamification.models import (
@@ -2688,6 +2717,563 @@ class DashboardLayoutDetailView(APIView):
         )
 
 
+class AdminContentCalendarEventListCreateView(APIView):
+    """List and create admin content calendar events."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queryset = ContentCalendarEvent.objects.select_related("created_by").order_by(
+            "start_datetime"
+        )
+
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        if start_date:
+            parsed_start = parse_datetime(start_date)
+            if parsed_start:
+                if timezone.is_naive(parsed_start):
+                    parsed_start = timezone.make_aware(
+                        parsed_start, timezone.get_current_timezone()
+                    )
+                queryset = queryset.filter(start_datetime__gte=parsed_start)
+
+        if end_date:
+            parsed_end = parse_datetime(end_date)
+            if parsed_end:
+                if timezone.is_naive(parsed_end):
+                    parsed_end = timezone.make_aware(
+                        parsed_end, timezone.get_current_timezone()
+                    )
+                queryset = queryset.filter(start_datetime__lte=parsed_end)
+
+        serializer = AdminContentCalendarEventSerializer(
+            queryset, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AdminContentCalendarEventSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        save_kwargs = {"created_by": request.user}
+        if not serializer.validated_data.get("status"):
+            start_datetime = serializer.validated_data.get("start_datetime")
+            save_kwargs["status"] = (
+                ContentCalendarEvent.EventStatus.SCHEDULED
+                if start_datetime and start_datetime > timezone.now()
+                else ContentCalendarEvent.EventStatus.DRAFT
+            )
+
+        event = serializer.save(**save_kwargs)
+        return Response(
+            AdminContentCalendarEventSerializer(
+                event, context={"request": request}
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminIncidentListCreateView(APIView):
+    """List and create incidents."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queryset = Incident.objects.select_related("assigned_to", "reported_by").order_by(
+            "-started_at"
+        )
+
+        status_param = request.query_params.get("status")
+        if status_param:
+            statuses = [value.strip() for value in status_param.split(",") if value.strip()]
+            queryset = queryset.filter(status__in=statuses)
+
+        severity = request.query_params.get("severity")
+        if severity:
+            queryset = queryset.filter(severity=severity)
+
+        serializer = AdminIncidentSerializer(
+            queryset, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AdminIncidentSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        incident = serializer.save(reported_by=request.user, source="manual")
+        return Response(
+            AdminIncidentSerializer(incident, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminIncidentStatusUpdateView(APIView):
+    """Update incident workflow status."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def patch(self, request, incident_id):
+        incident = get_object_or_404(Incident, id=incident_id)
+        serializer = AdminIncidentStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        new_status = serializer.validated_data["status"]
+        resolution = serializer.validated_data.get("resolution", "")
+
+        if new_status == Incident.Status.RESOLVED:
+            incident.resolve(resolution or incident.resolution or "Resolved by admin.")
+        elif new_status == Incident.Status.CLOSED:
+            if resolution:
+                incident.resolution = resolution
+                incident.save(update_fields=["resolution"])
+            incident.close()
+        elif new_status == Incident.Status.IDENTIFIED:
+            incident.mark_identifying()
+        elif new_status == Incident.Status.MONITORING:
+            incident.mark_monitoring()
+        else:
+            incident.status = new_status
+            if resolution:
+                incident.resolution = resolution
+            incident.save()
+
+        return Response(
+            AdminIncidentSerializer(incident, context={"request": request}).data
+        )
+
+
+class AdminFunnelListView(APIView):
+    """List funnels with computed conversion results."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        existing_names = set(Funnel.objects.values_list("name", flat=True))
+        for template in FunnelAnalyticsService.get_default_funnels():
+            if template["name"] in existing_names:
+                continue
+            Funnel.objects.create(
+                name=template["name"],
+                description=template.get("description", ""),
+                steps=template.get("steps", []),
+                time_window_days=template.get("time_window_days", 7),
+                created_by=request.user,
+            )
+
+        queryset = Funnel.objects.order_by("name")
+        serializer = AdminFunnelSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class AdminFunnelDropoffView(APIView):
+    """Return drop-off analysis for a funnel."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request, funnel_id):
+        dropoff = FunnelAnalyticsService.analyze_user_drop_off(funnel_id)
+        if dropoff is None:
+            return Response(
+                {"detail": "Funnel not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(dropoff)
+
+
+class AdminAPIKeyListCreateView(APIView):
+    """List and create admin API keys."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queryset = APIKey.objects.filter(user=request.user).order_by("-created_at")
+        serializer = AdminAPIKeySerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AdminAPIKeyCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = dict(serializer.validated_data)
+        name = payload.pop("name")
+        rate_limit = payload.get("rate_limit", 1000)
+        payload.setdefault("rate_limit_remaining", rate_limit)
+        api_key, raw_key = APIKey.create_key(name=name, user=request.user, **payload)
+        response_payload = AdminAPIKeySerializer(api_key).data
+        response_payload["raw_key"] = raw_key
+        return Response(response_payload, status=status.HTTP_201_CREATED)
+
+
+class AdminAPIKeyDetailView(APIView):
+    """Retrieve and update an admin API key."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get_object(self, request, key_id):
+        return get_object_or_404(APIKey, id=key_id, user=request.user)
+
+    def get(self, request, key_id):
+        api_key = self.get_object(request, key_id)
+        return Response(AdminAPIKeySerializer(api_key).data)
+
+    def patch(self, request, key_id):
+        api_key = self.get_object(request, key_id)
+        serializer = AdminAPIKeyUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        payload = dict(serializer.validated_data)
+        new_status = payload.pop("status", None)
+        updated_fields = []
+
+        for field, value in payload.items():
+            setattr(api_key, field, value)
+            updated_fields.append(field)
+
+        if "rate_limit" in payload and "rate_limit_remaining" not in updated_fields:
+            api_key.rate_limit_remaining = min(
+                api_key.rate_limit_remaining, api_key.rate_limit
+            )
+            updated_fields.append("rate_limit_remaining")
+
+        if updated_fields:
+            api_key.save(update_fields=updated_fields)
+
+        if new_status == APIKey.KeyStatus.ACTIVE:
+            api_key.activate()
+        elif new_status == APIKey.KeyStatus.INACTIVE:
+            api_key.deactivate()
+        elif new_status == APIKey.KeyStatus.REVOKED:
+            api_key.revoke()
+
+        return Response(AdminAPIKeySerializer(api_key).data)
+
+
+class AdminAPIKeyRevokeView(APIView):
+    """Revoke an admin API key."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, key_id):
+        api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
+        api_key.revoke()
+        return Response(
+            {
+                "message": "API key revoked successfully.",
+                "api_key": AdminAPIKeySerializer(api_key).data,
+            }
+        )
+
+
+class AdminWorkflowListCreateView(APIView):
+    """List and create admin workflows."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queryset = Workflow.objects.select_related("created_by").order_by("-created_at")
+        serializer = AdminWorkflowSerializer(
+            queryset, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AdminWorkflowCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = dict(serializer.validated_data)
+        trigger_type = payload.get("trigger_type")
+        schedule_interval = payload.get("schedule_interval_minutes")
+
+        trigger_config = payload.get("trigger_config") or {}
+        if trigger_type == Workflow.TriggerType.SCHEDULED and schedule_interval:
+            trigger_config.setdefault("interval_minutes", schedule_interval)
+
+        workflow = Workflow.objects.create(
+            name=payload["name"],
+            description=payload.get("description", ""),
+            trigger_type=trigger_type,
+            trigger_config=trigger_config,
+            trigger_event=payload.get("trigger_event", ""),
+            schedule_cron=payload.get("schedule_cron", ""),
+            schedule_interval_minutes=schedule_interval,
+            actions=payload.get("actions", []),
+            conditions=payload.get("conditions", []),
+            status=payload.get("status", Workflow.WorkflowStatus.DRAFT),
+            run_on_creation=payload.get("run_on_creation", False),
+            created_by=request.user,
+        )
+
+        if workflow.status == Workflow.WorkflowStatus.ACTIVE:
+            workflow.schedule_next_run()
+
+        return Response(
+            AdminWorkflowSerializer(workflow, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminWorkflowDetailView(APIView):
+    """Retrieve, update, and delete workflows."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get_object(self, workflow_id):
+        return get_object_or_404(Workflow, id=workflow_id)
+
+    def get(self, request, workflow_id):
+        workflow = self.get_object(workflow_id)
+        return Response(
+            AdminWorkflowSerializer(workflow, context={"request": request}).data
+        )
+
+    def patch(self, request, workflow_id):
+        workflow = self.get_object(workflow_id)
+        serializer = AdminWorkflowUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        payload = dict(serializer.validated_data)
+
+        new_status = payload.pop("status", None)
+        updated_fields = []
+
+        if "trigger_type" in payload and payload["trigger_type"] == Workflow.TriggerType.SCHEDULED:
+            trigger_config = payload.get("trigger_config") or workflow.trigger_config or {}
+            interval = payload.get(
+                "schedule_interval_minutes", workflow.schedule_interval_minutes
+            )
+            if interval:
+                trigger_config.setdefault("interval_minutes", interval)
+            payload["trigger_config"] = trigger_config
+
+        for field, value in payload.items():
+            setattr(workflow, field, value)
+            updated_fields.append(field)
+
+        if updated_fields:
+            workflow.save(update_fields=updated_fields)
+
+        if new_status == Workflow.WorkflowStatus.ACTIVE:
+            workflow.activate()
+        elif new_status == Workflow.WorkflowStatus.PAUSED:
+            workflow.pause()
+        elif new_status == Workflow.WorkflowStatus.DISABLED:
+            workflow.disable()
+        elif new_status == Workflow.WorkflowStatus.DRAFT:
+            workflow.status = Workflow.WorkflowStatus.DRAFT
+            workflow.save(update_fields=["status"])
+
+        return Response(
+            AdminWorkflowSerializer(workflow, context={"request": request}).data
+        )
+
+    def delete(self, request, workflow_id):
+        workflow = self.get_object(workflow_id)
+        workflow.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminWorkflowExecutionListView(APIView):
+    """List workflow executions for a workflow."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request, workflow_id):
+        workflow = get_object_or_404(Workflow, id=workflow_id)
+        executions = workflow.executions.order_by("-started_at", "-completed_at")[:50]
+        serializer = AdminWorkflowExecutionSerializer(executions, many=True)
+        return Response(serializer.data)
+
+
+class AdminWorkflowRunView(APIView):
+    """Run a workflow immediately."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, workflow_id):
+        workflow = get_object_or_404(Workflow, id=workflow_id)
+        previous_status = workflow.status
+        previous_is_active = workflow.is_active
+        should_restore = (
+            previous_status != Workflow.WorkflowStatus.ACTIVE or not previous_is_active
+        )
+
+        if should_restore:
+            workflow.status = Workflow.WorkflowStatus.ACTIVE
+            workflow.is_active = True
+            workflow.save(update_fields=["status", "is_active"])
+
+        execution = workflow.run(
+            context={
+                "triggered_by": str(request.user.id),
+                "triggered_from": "admin-api",
+            }
+        )
+
+        if should_restore:
+            workflow.status = previous_status
+            workflow.is_active = previous_is_active
+            workflow.save(update_fields=["status", "is_active"])
+
+        if not execution:
+            return Response(
+                {"detail": "Workflow could not be started."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        update_fields = []
+        if not execution.started_at:
+            execution.started_at = timezone.now()
+            update_fields.append("started_at")
+        if execution.status != WorkflowExecution.ExecutionStatus.RUNNING and not execution.completed_at:
+            execution.completed_at = timezone.now()
+            update_fields.append("completed_at")
+        if not execution.triggered_by:
+            execution.triggered_by = request.user
+            update_fields.append("triggered_by")
+        if update_fields:
+            execution.save(update_fields=update_fields)
+
+        return Response(
+            AdminWorkflowExecutionSerializer(execution).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminWebhookListCreateView(APIView):
+    """List and create admin webhooks."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queryset = Webhook.objects.select_related("created_by").order_by("-created_at")
+        serializer = AdminWebhookSerializer(
+            queryset, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = AdminWebhookSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        webhook = serializer.save(created_by=request.user)
+        if not webhook.secret:
+            webhook.generate_secret()
+        return Response(
+            AdminWebhookSerializer(webhook, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminWebhookDetailView(APIView):
+    """Retrieve, update, and delete webhooks."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get_object(self, webhook_id):
+        return get_object_or_404(Webhook, id=webhook_id)
+
+    def get(self, request, webhook_id):
+        webhook = self.get_object(webhook_id)
+        return Response(
+            AdminWebhookSerializer(webhook, context={"request": request}).data
+        )
+
+    def patch(self, request, webhook_id):
+        webhook = self.get_object(webhook_id)
+        serializer = AdminWebhookSerializer(
+            webhook,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        updated_webhook = serializer.save()
+        if updated_webhook.status != Webhook.WebhookStatus.ACTIVE:
+            updated_webhook.is_active = False
+            updated_webhook.save(update_fields=["is_active"])
+        elif not updated_webhook.is_active:
+            updated_webhook.is_active = True
+            updated_webhook.save(update_fields=["is_active"])
+        return Response(
+            AdminWebhookSerializer(
+                updated_webhook, context={"request": request}
+            ).data
+        )
+
+    def delete(self, request, webhook_id):
+        webhook = self.get_object(webhook_id)
+        webhook.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminWebhookTestView(APIView):
+    """Send a test delivery for a webhook."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, webhook_id):
+        webhook = get_object_or_404(Webhook, id=webhook_id)
+        delivery = WebhookDelivery.objects.create(
+            webhook=webhook,
+            event_type="system.alert",
+            payload={
+                "event": "system.alert",
+                "source": "admin-dashboard",
+                "message": "CampusHub webhook connectivity test",
+                "timestamp": timezone.now().isoformat(),
+            },
+            max_attempts=1,
+        )
+        delivery.send()
+        return Response(
+            {
+                "message": "Test delivery attempted.",
+                "delivery": {
+                    "id": str(delivery.id),
+                    "status": delivery.status,
+                    "response_status_code": delivery.response_status_code,
+                    "error_message": delivery.error_message,
+                    "completed_at": delivery.completed_at,
+                },
+            }
+        )
+
+
+class AdminAuditLogListView(generics.ListAPIView):
+    """List audit trail entries for admin activity review."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminAuditLogSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return AuditLog.objects.none()
+
+        queryset = AuditLog.objects.select_related("user").order_by("-created_at")
+
+        action = self.request.query_params.get("action")
+        if action:
+            queryset = queryset.filter(action__icontains=action)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(action__icontains=search)
+                | Q(description__icontains=search)
+                | Q(target_type__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+            )
+
+        return queryset
+
+
 # Multi-tenant Admin Views
 class AdminScopeView(APIView):
     """View for admin scope and role information."""
@@ -3131,3 +3717,348 @@ class BulkResourceByTypeView(APIView):
             'resources': created_resources,
             'errors': errors if errors else None
         }, status=status.HTTP_201_CREATED if resources_created > 0 else status.HTTP_400_BAD_REQUEST)
+
+
+# ================== Calendar Admin Views ==================
+
+
+class AdminAcademicCalendarListView(generics.ListCreateAPIView):
+    """List and create academic calendars for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminAcademicCalendarSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar.models import AcademicCalendar
+        queryset = AcademicCalendar.objects.select_related('faculty', 'department')
+        
+        # Filter by year
+        year = self.request.query_params.get('year')
+        if year:
+            queryset = queryset.filter(year=year)
+        
+        # Filter by semester
+        semester = self.request.query_params.get('semester')
+        if semester:
+            queryset = queryset.filter(semester=semester)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        # Filter by faculty
+        faculty_id = self.request.query_params.get('faculty_id')
+        if faculty_id:
+            queryset = queryset.filter(faculty_id=faculty_id)
+        
+        return queryset.order_by('-year', '-semester')
+
+
+class AdminAcademicCalendarDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete an academic calendar."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminAcademicCalendarSerializer
+    lookup_url_kwarg = "calendar_id"
+
+    def get_queryset(self):
+        from apps.calendar.models import AcademicCalendar
+        return AcademicCalendar.objects.select_related('faculty', 'department')
+
+
+class AdminTimetableListView(generics.ListCreateAPIView):
+    """List and create timetables for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminTimetableSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar.models import Timetable
+        queryset = Timetable.objects.select_related(
+            'academic_calendar', 'course', 'unit', 'instructor'
+        )
+        
+        # Filter by academic calendar
+        academic_calendar_id = self.request.query_params.get('academic_calendar_id')
+        if academic_calendar_id:
+            queryset = queryset.filter(academic_calendar_id=academic_calendar_id)
+        
+        # Filter by course
+        course_id = self.request.query_params.get('course_id')
+        if course_id:
+            queryset = queryset.filter(course_id=course_id)
+        
+        # Filter by unit
+        unit_id = self.request.query_params.get('unit_id')
+        if unit_id:
+            queryset = queryset.filter(unit_id=unit_id)
+        
+        # Filter by day
+        day = self.request.query_params.get('day')
+        if day:
+            queryset = queryset.filter(day=day)
+        
+        # Filter by year of study
+        year_of_study = self.request.query_params.get('year_of_study')
+        if year_of_study:
+            queryset = queryset.filter(year_of_study=year_of_study)
+        
+        return queryset.order_by('day', 'start_time')
+
+
+class AdminTimetableDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a timetable entry."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminTimetableSerializer
+    lookup_url_kwarg = "timetable_id"
+
+    def get_queryset(self):
+        from apps.calendar.models import Timetable
+        return Timetable.objects.select_related(
+            'academic_calendar', 'course', 'unit', 'instructor'
+        )
+
+
+class AdminTimetableOverrideListView(generics.ListCreateAPIView):
+    """List and create timetable overrides for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminTimetableOverrideSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar.models import TimetableOverride
+        queryset = TimetableOverride.objects.select_related(
+            'timetable', 'timetable__course', 'created_by'
+        )
+        
+        # Filter by timetable
+        timetable_id = self.request.query_params.get('timetable_id')
+        if timetable_id:
+            queryset = queryset.filter(timetable_id=timetable_id)
+        
+        # Filter by override type
+        override_type = self.request.query_params.get('override_type')
+        if override_type:
+            queryset = queryset.filter(override_type=override_type)
+        
+        # Filter by date range
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            queryset = queryset.filter(date__gte=date_from)
+        
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            queryset = queryset.filter(date__lte=date_to)
+        
+        return queryset.order_by('-date')
+
+
+class AdminTimetableOverrideDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a timetable override."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminTimetableOverrideSerializer
+    lookup_url_kwarg = "override_id"
+
+    def get_queryset(self):
+        from apps.calendar.models import TimetableOverride
+        return TimetableOverride.objects.select_related('timetable', 'created_by')
+
+
+class AdminPersonalScheduleListView(generics.ListAPIView):
+    """List personal schedules for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminPersonalScheduleSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar.models import PersonalSchedule
+        queryset = PersonalSchedule.objects.select_related(
+            'user', 'course', 'unit'
+        )
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by category
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        # Filter by date range
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            queryset = queryset.filter(date__gte=date_from)
+        
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            queryset = queryset.filter(date__lte=date_to)
+        
+        return queryset.order_by('-date', '-created_at')
+
+
+class AdminPersonalScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a personal schedule."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminPersonalScheduleSerializer
+    lookup_url_kwarg = "schedule_id"
+
+    def get_queryset(self):
+        from apps.calendar.models import PersonalSchedule
+        return PersonalSchedule.objects.select_related('user', 'course', 'unit')
+
+
+class AdminScheduleExportListView(generics.ListAPIView):
+    """List schedule exports for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminScheduleExportSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar.models import ScheduleExport
+        queryset = ScheduleExport.objects.select_related('user')
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by export type
+        export_type = self.request.query_params.get('export_type')
+        if export_type:
+            queryset = queryset.filter(export_type=export_type)
+        
+        return queryset.order_by('-created_at')
+
+
+class AdminScheduleExportDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a schedule export."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminScheduleExportSerializer
+    lookup_url_kwarg = "export_id"
+
+    def get_queryset(self):
+        from apps.calendar.models import ScheduleExport
+        return ScheduleExport.objects.select_related('user')
+
+
+# ================== Calendar Sync Admin Views ==================
+
+
+class AdminCalendarAccountListView(generics.ListAPIView):
+    """List calendar accounts for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminCalendarAccountSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import CalendarAccount
+        queryset = CalendarAccount.objects.select_related('user')
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by provider
+        provider = self.request.query_params.get('provider')
+        if provider:
+            queryset = queryset.filter(provider=provider)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        return queryset.order_by('-created_at')
+
+
+class AdminCalendarAccountDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update or delete a calendar account."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminCalendarAccountSerializer
+    lookup_url_kwarg = "account_id"
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import CalendarAccount
+        return CalendarAccount.objects.select_related('user')
+
+
+class AdminSyncSettingsListView(generics.ListAPIView):
+    """List sync settings for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSyncSettingsSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import SyncSettings
+        queryset = SyncSettings.objects.select_related('user')
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        return queryset.order_by('-created_at')
+
+
+class AdminSyncSettingsDetailView(generics.RetrieveUpdateAPIView):
+    """Retrieve and update sync settings."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSyncSettingsSerializer
+    lookup_url_kwarg = "settings_id"
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import SyncSettings
+        return SyncSettings.objects.select_related('user')
+
+
+class AdminSyncedEventListView(generics.ListAPIView):
+    """List synced events for admin management."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSyncedEventSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import SyncedEvent
+        queryset = SyncedEvent.objects.select_related('calendar_account')
+        
+        # Filter by calendar account
+        calendar_account_id = self.request.query_params.get('calendar_account_id')
+        if calendar_account_id:
+            queryset = queryset.filter(calendar_account_id=calendar_account_id)
+        
+        # Filter by deleted status
+        is_deleted = self.request.query_params.get('is_deleted')
+        if is_deleted is not None:
+            queryset = queryset.filter(is_deleted=is_deleted.lower() == 'true')
+        
+        return queryset.order_by('-start_time')
+
+
+class AdminSyncedEventDetailView(generics.RetrieveDestroyAPIView):
+    """Retrieve or delete a synced event."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = AdminSyncedEventSerializer
+    lookup_url_kwarg = "event_id"
+
+    def get_queryset(self):
+        from apps.calendar_sync.models import SyncedEvent
+        return SyncedEvent.objects.select_related('calendar_account')

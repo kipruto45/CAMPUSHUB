@@ -4,6 +4,7 @@ services:
     env: python
     buildCommand: |
       mkdir -p /tmp && \
+      touch /tmp/campushub.sqlite3 && \
       pip install -r requirements.txt && \
       python manage.py migrate --noinput && \
       if [ "$RESET_REFERENCE_DATA" = "true" ]; then python manage.py clear_all_data; fi && \
