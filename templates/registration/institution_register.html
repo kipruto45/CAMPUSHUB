@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Register Your Institution</h3>
+                    <p class="mb-0">Join CampusHub - the university learning platform</p>
+                </div>
+                <div class="card-body">
+                    {% if success %}
+                        <div class="alert alert-success">
+                            <h4>Registration Successful!</h4>
+                            <p>Your institution <strong>{{ institution_name }}</strong> has been registered.</p>
+                            <p>We've sent login credentials to your email. Pending approval, you'll be able to access the platform.</p>
+                            <a href="{% url 'accounts:login' %}" class="btn btn-primary">Go to Login</a>
+                        </div>
+                    {% else %}
+                        {% if error %}
+                            <div class="alert alert-danger">{{ error }}</div>
+                        {% endif %}
+                        
+                        <form method="post">
+                            {% csrf_token %}
+                            
+                            <h5 class="mb-3">Institution Information</h5>
+                            
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Institution Name *</label>
+                                <input type="text" class="form-control" id="name" name="name" required>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="short_name" class="form-label">Short Name</label>
+                                    <input type="text" class="form-control" id="short_name" name="short_name" placeholder="e.g., MIT">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="slug" class="form-label">URL Slug *</label>
+                                    <input type="text" class="form-control" id="slug" name="slug" placeholder="e.g., mit-university" required>
+                                    <small class="text-muted">This will be used in your institution's URL</small>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="institution_type" class="form-label">Institution Type *</label>
+                                <select class="form-select" id="institution_type" name="institution_type" required>
+                                    <option value="">Select type...</option>
+                                    <option value="university">University</option>
+                                    <option value="college">College</option>
+                                    <option value="high_school">High School</option>
+                                    <option value="bootcamp">Bootcamp</option>
+                                    <option value="online">Online Learning Platform</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Description</label>
+                                <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="email_domain" class="form-label">Email Domain *</label>
+                                <input type="text" class="form-control" id="email_domain" name="email_domain" placeholder="@university.edu" required>
+                                <small class="text-muted">Students with emails ending in this domain will join your institution</small>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="website" class="form-label">Website</label>
+                                    <input type="url" class="form-control" id="website" name="website" placeholder="https://university.edu">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="phone" class="form-label">Phone</label>
+                                    <input type="text" class="form-control" id="phone" name="phone">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="address" class="form-label">Address</label>
+                                <textarea class="form-control" id="address" name="address" rows="2"></textarea>
+                            </div>
+                            
+                            <hr>
+                            
+                            <h5 class="mb-3">Admin Contact Information</h5>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="contact_name" class="form-label">Full Name *</label>
+                                    <input type="text" class="form-control" id="contact_name" name="contact_name" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="contact_email" class="form-label">Email *</label>
+                                    <input type="email" class="form-control" id="contact_email" name="contact_email" required>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="password" class="form-label">Password *</label>
+                                    <input type="password" class="form-control" id="password" name="password" required minlength="8">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="confirm_password" class="form-label">Confirm Password *</label>
+                                    <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="terms" required>
+                                <label class="form-check-label" for="terms">
+                                    I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+                                </label>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-lg">Register Institution</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="text-center mt-3">
+                <p>Already have an account? <a href="{% url 'accounts:login' %}">Login here</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Auto-generate slug from name
+    document.getElementById('name').addEventListener('input', function() {
+        const slugInput = document.getElementById('slug');
+        if (!slugInput.dataset.manual) {
+            slugInput.value = this.value.toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)/g, '');
+        }
+    });
+    
+    document.getElementById('slug').addEventListener('input', function() {
+        this.dataset.manual = 'true';
+    });
+</script>
+{% endblock %}
