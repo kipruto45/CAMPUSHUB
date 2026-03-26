@@ -16,7 +16,7 @@ services:
       - key: DEBUG
         value: "False"
       - key: DATABASE_URL
-        sync: false
+        value: sqlite:////tmp/campushub.sqlite3
       - key: FORCE_SQLITE
         value: "True"
       - key: SQLITE_PATH
