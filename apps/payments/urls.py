@@ -24,6 +24,7 @@ urlpatterns = [
     path("payments/", views.PaymentHistoryView.as_view(), name="payment-history"),
     path("payments/status/", views.PaymentStatusView.as_view(), name="payment-status"),
     path("checkout/", views.PaymentCreateView.as_view(), name="payment-create"),
+    path("providers/", views.PaymentProviderStatusView.as_view(), name="payment-providers"),
     path("limits/", views.subscription_limits, name="subscription-limits"),
     
     # Storage

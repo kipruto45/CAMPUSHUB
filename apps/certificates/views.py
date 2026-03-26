@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.courses.models import Course
+from apps.payments.freemium import Feature, can_access_feature
 
 from .models import Certificate, CertificateTemplate, CertificateType
 from .serializers import (
@@ -28,7 +29,52 @@ from .services import CertificateService
 logger = logging.getLogger(__name__)
 
 
-class CertificateTypeListView(generics.ListAPIView):
+def _certificate_feature_denied(user):
+    has_access, reason = can_access_feature(user, Feature.CERTIFICATES)
+    if has_access:
+        return None
+    return {
+        "error": "Feature not available",
+        "reason": reason,
+        "feature": Feature.CERTIFICATES.value,
+        "upgrade_url": "/settings/billing/upgrade/",
+    }
+
+
+class CertificateFeatureAccessMixin:
+    """Require a certificate-enabled plan for protected certificate actions."""
+
+    def dispatch(self, request, *args, **kwargs):
+        handler_kwargs = {key: value for key, value in kwargs.items() if key != "version"}
+        self.args = args
+        self.kwargs = handler_kwargs
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        self.headers = self.default_response_headers
+
+        try:
+            self.initial(request, *args, **kwargs)
+            denied_payload = _certificate_feature_denied(request.user)
+            if denied_payload:
+                response = Response(
+                    denied_payload,
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            else:
+                handler = getattr(
+                    self,
+                    request.method.lower(),
+                    self.http_method_not_allowed,
+                )
+                response = handler(request, *args, **handler_kwargs)
+        except Exception as exc:
+            response = self.handle_exception(exc)
+
+        self.response = self.finalize_response(request, response, *args, **handler_kwargs)
+        return self.response
+
+
+class CertificateTypeListView(CertificateFeatureAccessMixin, generics.ListAPIView):
     """List all certificate types."""
 
     queryset = CertificateType.objects.filter(is_active=True)
@@ -36,7 +82,7 @@ class CertificateTypeListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
 
-class CertificateTemplateListView(generics.ListAPIView):
+class CertificateTemplateListView(CertificateFeatureAccessMixin, generics.ListAPIView):
     """List all certificate templates."""
 
     queryset = CertificateTemplate.objects.filter(is_active=True)
@@ -44,7 +90,7 @@ class CertificateTemplateListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
 
-class CertificateListCreateView(generics.ListCreateAPIView):
+class CertificateListCreateView(CertificateFeatureAccessMixin, generics.ListCreateAPIView):
     """List all certificates for the authenticated user or create a new one."""
 
     permission_classes = [IsAuthenticated]
@@ -73,7 +119,7 @@ class CertificateListCreateView(generics.ListCreateAPIView):
         return Response(detail_serializer.data, status=status.HTTP_201_CREATED)
 
 
-class CertificateDetailView(generics.RetrieveAPIView):
+class CertificateDetailView(CertificateFeatureAccessMixin, generics.RetrieveAPIView):
     """Retrieve a specific certificate."""
 
     queryset = Certificate.objects.all()
@@ -82,7 +128,7 @@ class CertificateDetailView(generics.RetrieveAPIView):
     lookup_field = "unique_id"
 
 
-class CertificateDownloadView(APIView):
+class CertificateDownloadView(CertificateFeatureAccessMixin, APIView):
     """Download certificate as PDF."""
 
     permission_classes = [IsAuthenticated]
@@ -168,7 +214,7 @@ class CertificateVerifyView(APIView):
             )
 
 
-class CertificateGenerateView(APIView):
+class CertificateGenerateView(CertificateFeatureAccessMixin, APIView):
     """Generate a new certificate."""
 
     permission_classes = [IsAuthenticated]
@@ -199,7 +245,7 @@ class CertificateGenerateView(APIView):
             )
 
 
-class UserCertificateListView(generics.ListAPIView):
+class UserCertificateListView(CertificateFeatureAccessMixin, generics.ListAPIView):
     """List all certificates for a specific user."""
 
     serializer_class = CertificateListSerializer

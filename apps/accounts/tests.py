@@ -16,6 +16,7 @@ from apps.accounts.constants import (
     EMAIL_NOT_VERIFIED_CODE,
     EMAIL_NOT_VERIFIED_MESSAGE,
 )
+from apps.payments.models import Subscription
 from apps.core.encryption import EncryptionService
 from apps.two_factor.models import TwoFactorSetting
 from apps.accounts.verification import (
@@ -77,6 +78,22 @@ class TestRegistrationAndVerification:
         assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
         assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
 
+    def test_verified_web_login_auto_starts_student_trial(self, api_client, test_user):
+        test_user.is_verified = True
+        test_user.save(update_fields=["is_verified", "updated_at"])
+
+        response = api_client.post(
+            reverse("accounts:login"),
+            {"email": test_user.email, "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        subscription = Subscription.objects.get(user=test_user, status="trialing")
+        assert subscription.plan.tier == "basic"
+        assert subscription.metadata.get("trial") is True
+        assert subscription.metadata.get("trial_duration_days") == 7
+
     def test_resend_verification_uses_verification_email_template(
         self, api_client, test_user, mailoutbox
     ):
@@ -102,6 +119,22 @@ class TestRegistrationAndVerification:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
         assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
+
+    def test_verified_mobile_login_auto_starts_student_trial(self, api_client, test_user):
+        test_user.is_verified = True
+        test_user.save(update_fields=["is_verified", "updated_at"])
+
+        response = api_client.post(
+            "/api/mobile/login/",
+            {"email": test_user.email, "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        subscription = Subscription.objects.get(user=test_user, status="trialing")
+        assert subscription.plan.tier == "basic"
+        assert subscription.metadata.get("trial") is True
+        assert subscription.metadata.get("trial_duration_days") == 7
 
     def test_passkey_auth_blocks_unverified_user(self, api_client, monkeypatch):
         monkeypatch.setattr(
@@ -331,6 +364,7 @@ class TestMagicLink:
         assert resp.status_code == status.HTTP_403_FORBIDDEN
         assert resp.data["code"] == EMAIL_NOT_VERIFIED_CODE
         assert resp.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
+        assert resp.data["email"] == test_user.email
 
     def test_magic_link_request_is_rate_limited(self, api_client, test_user):
         cache.clear()

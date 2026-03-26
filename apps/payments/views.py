@@ -24,6 +24,10 @@ from .providers import payment_service
 logger = logging.getLogger(__name__)
 
 
+def _provider_status_payload() -> dict:
+    return payment_service.get_provider_statuses()
+
+
 class PlanListView(APIView):
     """List available subscription plans."""
 
@@ -57,7 +61,10 @@ class PlanListView(APIView):
             "stripe_yearly_price_id": plan.stripe_yearly_price_id,
         } for plan in plans]
 
-        return Response({"plans": data})
+        return Response({
+            "plans": data,
+            "providers": _provider_status_payload(),
+        })
 
 
 class SubscriptionView(APIView):
@@ -70,15 +77,18 @@ class SubscriptionView(APIView):
         description="Get current user's subscription details"
     )
     def get(self, request, *args, **kwargs):
-        subscription = Subscription.objects.filter(
-            user=request.user,
-            status__in=["active", "trialing", "past_due"]
-        ).select_related("plan").first()
+        from apps.payments.freemium import (
+            get_active_subscription,
+            get_feature_access_summary,
+        )
+
+        subscription = get_active_subscription(request.user, include_pending=True)
 
         if not subscription:
             return Response({
                 "subscription": None,
-                "plan": None
+                "plan": None,
+                "entitlements": get_feature_access_summary(request.user),
             })
 
         return Response({
@@ -95,7 +105,8 @@ class SubscriptionView(APIView):
                 "id": str(subscription.plan.id),
                 "name": subscription.plan.name,
                 "tier": subscription.plan.tier,
-            }
+            },
+            "entitlements": get_feature_access_summary(request.user),
         })
 
     @extend_schema(
@@ -105,6 +116,8 @@ class SubscriptionView(APIView):
     def post(self, request, *args, **kwargs):
         plan_id = request.data.get("plan_id")
         billing_period = request.data.get("billing_period", "monthly")
+        provider = request.data.get("provider", "stripe")
+        phone_number = request.data.get("phone_number")
 
         if not plan_id:
             return Response(
@@ -120,11 +133,6 @@ class SubscriptionView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        stripe = get_stripe_service()
-
-        # Get or create customer
-        customer = stripe.get_or_create_customer(request.user)
-
         # Keep a local subscription record so Stripe webhooks can reconcile back.
         local_subscription = Subscription.objects.filter(
             user=request.user,
@@ -134,13 +142,11 @@ class SubscriptionView(APIView):
 
         if local_subscription:
             local_subscription.plan = plan
-            local_subscription.stripe_customer_id = customer.id
             local_subscription.billing_period = billing_period
             local_subscription.status = "unpaid"
             local_subscription.save(
                 update_fields=[
                     "plan",
-                    "stripe_customer_id",
                     "billing_period",
                     "status",
                     "updated_at",
@@ -150,55 +156,97 @@ class SubscriptionView(APIView):
             local_subscription = Subscription.objects.create(
                 user=request.user,
                 plan=plan,
-                stripe_customer_id=customer.id,
                 billing_period=billing_period,
                 status="unpaid",
             )
 
-        # Get price ID
+        base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
+        provider_key = payment_service._resolve_provider(provider)
+        provider_status = _provider_status_payload().get(provider_key, {})
+
+        if not provider_status.get("configured"):
+            return Response(
+                {
+                    "error": provider_status.get("error")
+                    or f"{provider_key.replace('_', ' ').title()} is not configured",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         price_id = (
             plan.stripe_monthly_price_id if billing_period == "monthly"
             else plan.stripe_yearly_price_id
         )
 
-        if not price_id:
-            return Response(
-                {"error": "Plan not available for purchase"},
-                status=status.HTTP_400_BAD_REQUEST
+        if provider_key == "stripe" and price_id:
+            try:
+                stripe = get_stripe_service()
+                customer = stripe.get_or_create_customer(request.user)
+                local_subscription.stripe_customer_id = customer.id
+                local_subscription.save(update_fields=["stripe_customer_id", "updated_at"])
+                checkout = stripe.create_checkout_session(
+                    customer_id=customer.id,
+                    price_id=price_id,
+                    success_url=f"{base_url}/settings/billing/success/",
+                    cancel_url=f"{base_url}/settings/billing/cancel/",
+                    metadata={
+                        "user_id": str(request.user.id),
+                        "plan_id": str(plan.id),
+                        "billing_period": billing_period,
+                        "local_subscription_id": str(local_subscription.id),
+                    },
+                )
+            except Exception as exc:
+                logger.error(f"Stripe checkout session creation failed: {exc}")
+                return Response(
+                    {"error": "Unable to start checkout. Please try again later."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            local_subscription.metadata = {
+                **local_subscription.metadata,
+                "checkout_session_id": checkout.id,
+                "provider": "stripe",
+            }
+            local_subscription.save(update_fields=["metadata", "updated_at"])
+
+            return Response({
+                "checkout_url": checkout.url,
+                "session_id": checkout.id,
+                "subscription_id": str(local_subscription.id),
+                "provider": "stripe",
+            })
+
+        amount = plan.price_monthly if billing_period == "monthly" else plan.price_yearly
+        result = payment_service.create_payment(
+            provider=provider_key,
+            amount=Decimal(str(amount)),
+            currency="USD",
+            description=f"{plan.name} {billing_period} plan",
+            user=request.user,
+            payment_type="subscription",
+            subscription=local_subscription,
+            type="plan_subscription",
+            plan_id=str(plan.id),
+            billing_period=billing_period,
+            success_url=f"{base_url}/settings/billing/success/",
+            cancel_url=f"{base_url}/settings/billing/cancel/",
+            phone_number=phone_number,
         )
 
-        # Create checkout session
-        base_url = getattr(settings, "BASE_URL", "http://localhost:8000")
-        try:
-            checkout = stripe.create_checkout_session(
-                customer_id=customer.id,
-                price_id=price_id,
-                success_url=f"{base_url}/settings/billing/success/",
-                cancel_url=f"{base_url}/settings/billing/cancel/",
-                metadata={
-                    "user_id": str(request.user.id),
-                    "plan_id": str(plan.id),
-                    "billing_period": billing_period,
-                    "local_subscription_id": str(local_subscription.id),
-                },
-            )
-        except Exception as exc:
-            logger.error(f"Stripe checkout session creation failed: {exc}")
+        if not result.get("success"):
             return Response(
-                {"error": "Unable to start checkout. Please try again later."},
+                {"error": result.get("error", "Unable to start subscription checkout.")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        local_subscription.metadata = {
-            **local_subscription.metadata,
-            "checkout_session_id": checkout.id,
-        }
-        local_subscription.save(update_fields=["metadata", "updated_at"])
-
         return Response({
-            "checkout_url": checkout.url,
-            "session_id": checkout.id,
+            "checkout_url": result.get("checkout_url"),
+            "instructions": result.get("instructions"),
+            "session_id": result.get("payment_id"),
             "subscription_id": str(local_subscription.id),
+            "payment_id": result.get("local_payment_id"),
+            "provider": provider_key,
         })
 
 
@@ -990,16 +1038,20 @@ class TierListView(APIView):
         description="Get all available subscription tiers and their features"
     )
     def get(self, request, *args, **kwargs):
-        from apps.payments.freemium import TIER_INFO, Tier
+        from apps.payments.freemium import TIER_INFO, Tier, get_user_tier
 
         tiers = []
-        for tier in [Tier.FREE, Tier.PREMIUM, Tier.PRO, Tier.ENTERPRISE]:
+        for tier in [Tier.FREE, Tier.BASIC, Tier.PREMIUM, Tier.ENTERPRISE]:
             tier_info = TIER_INFO[tier]
             tiers.append(tier_info.to_dict())
 
         return Response({
             "tiers": tiers,
-            "current_tier": None,  # Will be populated if authenticated
+            "current_tier": (
+                get_user_tier(request.user).value
+                if getattr(request.user, "is_authenticated", False)
+                else None
+            ),
         })
 
 
@@ -1086,53 +1138,38 @@ class TrialStartView(APIView):
 
     @extend_schema(
         summary="Start Trial",
-        description="Start a free trial for Premium tier"
+        description="Start a role-aware free trial for eligible users"
     )
     def post(self, request, *args, **kwargs):
-        from apps.payments.freemium import (
-            get_trial_eligibility,
-            TRIAL_CONFIG,
-            Tier,
-        )
-        from apps.payments.models import Subscription, Plan
-        from django.utils import timezone
-        from datetime import timedelta
+        from apps.payments.freemium import start_free_trial
 
-        # Check eligibility
-        eligibility = get_trial_eligibility(request.user)
+        subscription, payload = start_free_trial(request.user, source="manual")
 
-        if not eligibility.get("eligible"):
+        if not subscription:
             return Response(
-                {"error": eligibility.get("reason", "Not eligible for trial")},
+                {"error": payload.get("reason", "Not eligible for trial")},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Get or create Premium plan
-        try:
-            plan = Plan.objects.get(tier="premium", is_active=True)
-        except Plan.DoesNotExist:
-            return Response(
-                {"error": "Premium plan not available"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # Create trial subscription
-        trial_end = timezone.now() + timedelta(days=TRIAL_CONFIG["duration_days"])
-
-        subscription = Subscription.objects.create(
-            user=request.user,
-            plan=plan,
-            status="trialing",
-            current_period_start=timezone.now(),
-            current_period_end=trial_end,
-            trial_end=trial_end,
-            metadata={"trial": True, "started_at": timezone.now().isoformat()},
-        )
-
         return Response({
             "success": True,
-            "tier": TRIAL_CONFIG["tier"].value,
-            "duration_days": TRIAL_CONFIG["duration_days"],
-            "trial_end": trial_end.isoformat(),
+            "tier": payload["tier"],
+            "tier_name": payload.get("tier_name"),
+            "role_bucket": payload.get("role_bucket"),
+            "duration_days": payload["duration_days"],
+            "trial_end": payload["trial_end"],
             "subscription_id": str(subscription.id),
         })
+
+
+class PaymentProviderStatusView(APIView):
+    """Expose payment provider readiness for the mobile/web UI."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Payment Provider Status",
+        description="Get configured/available payment providers",
+    )
+    def get(self, request, *args, **kwargs):
+        return Response({"providers": _provider_status_payload()})

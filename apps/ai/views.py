@@ -20,6 +20,22 @@ from apps.ai.services import (
     ChatResponse,
 )
 from apps.ai.models import StudyGoal, StudyGoalMilestone, GoalReminder
+from apps.payments.freemium import Feature, can_access_feature
+
+
+def _feature_access_denied(user, feature: Feature):
+    has_access, reason = can_access_feature(user, feature)
+    if has_access:
+        return None
+    return Response(
+        {
+            "error": "Feature not available",
+            "reason": reason,
+            "feature": feature.value,
+            "upgrade_url": "/settings/billing/upgrade/",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class AISearchView(APIView):
@@ -46,7 +62,11 @@ class AISearchView(APIView):
             OpenApiParameter(name='limit', description='Number of results', type=int, default=10),
         ]
     )
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         query = request.query_params.get('q', '')
         search_type = request.query_params.get('type', 'hybrid')
         limit = int(request.query_params.get('limit', 10))
@@ -122,7 +142,11 @@ class AIRecommendationsView(APIView):
                           type=bool, default=True),
         ]
     )
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         limit = int(request.query_params.get('limit', 10))
         include_popular = request.query_params.get('include_popular', 'true').lower() == 'true'
         
@@ -162,7 +186,11 @@ class LearningPathView(APIView):
         summary="Learning Path",
         description="Get personalized learning path based on user's course"
     )
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         course_id = request.query_params.get('course_id')
         
         learning_path = RecommendationService.get_learning_path(
@@ -192,7 +220,11 @@ class AIChatbotView(APIView):
             }
         }
     )
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_CHAT)
+        if denied_response:
+            return denied_response
+
         message = request.data.get('message', '')
         clear_context = request.data.get('clear_context', False)
         
@@ -239,7 +271,11 @@ class AISummarizationView(APIView):
             }
         }
     )
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_SUMMARIZATION)
+        if denied_response:
+            return denied_response
+
         text = request.data.get('text', '')
         resource_id = request.data.get('resource_id')
         max_length = int(request.data.get('max_length', 200))
@@ -321,7 +357,11 @@ class StudyGoalGenerateView(APIView):
             }
         }
     )
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         goal_type = request.data.get('goal_type', 'all')
         save_goals = request.data.get('save', True)
         
@@ -384,7 +424,11 @@ class StudyGoalListView(APIView):
             OpenApiParameter(name='goal_type', description='Filter by goal type', type=str),
         ]
     )
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         # Build filters
         filters = {'user': request.user}
         
@@ -450,6 +494,10 @@ class StudyGoalDetailView(APIView):
         description="Get details of a specific study goal"
     )
     def get(self, request, goal_id):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         try:
             goal = StudyGoal.objects.get(id=goal_id, user=request.user)
         except StudyGoal.DoesNotExist:
@@ -511,6 +559,10 @@ class StudyGoalDetailView(APIView):
         }
     )
     def patch(self, request, goal_id):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         try:
             goal = StudyGoal.objects.get(id=goal_id, user=request.user)
         except StudyGoal.DoesNotExist:
@@ -544,6 +596,10 @@ class StudyGoalDetailView(APIView):
         description="Delete a study goal"
     )
     def delete(self, request, goal_id):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         try:
             goal = StudyGoal.objects.get(id=goal_id, user=request.user)
         except StudyGoal.DoesNotExist:
@@ -579,6 +635,10 @@ class StudyGoalCompleteView(APIView):
         }
     )
     def post(self, request, goal_id):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         try:
             goal = StudyGoal.objects.get(id=goal_id, user=request.user)
         except StudyGoal.DoesNotExist:
@@ -630,6 +690,10 @@ class StudyGoalProgressView(APIView):
         }
     )
     def post(self, request, goal_id):
+        denied_response = _feature_access_denied(request.user, Feature.AI_FEATURES)
+        if denied_response:
+            return denied_response
+
         try:
             goal = StudyGoal.objects.get(id=goal_id, user=request.user)
         except StudyGoal.DoesNotExist:

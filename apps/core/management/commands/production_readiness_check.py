@@ -9,6 +9,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
 
+from apps.core.sms import get_sms_configuration_status
+
 
 def _is_weak_secret(secret_key: str) -> bool:
     """Basic secret-key strength checks aligned with deploy expectations."""
@@ -80,17 +82,19 @@ class Command(BaseCommand):
         self._check_proxy_ssl_header(ok, warn)
         self._check_database_backend(ok, fail, allow_sqlite=allow_sqlite)
         database_ready = self._check_database_connectivity(ok, fail)
-        self._check_migrations(ok, fail, database_ready=database_ready)
+        migrations_ready = self._check_migrations(ok, fail, database_ready=database_ready)
         self._check_cache(ok, fail)
         self._check_channel_layer(ok, fail)
         self._check_celery(ok, fail)
         self._check_email_backend(ok, fail)
+        self._check_sms_backend(ok, warn, fail)
         self._check_superuser(
             ok,
             warn,
             fail,
             require_superuser=require_superuser,
             database_ready=database_ready,
+            migrations_ready=migrations_ready,
         )
         self._check_push(ok, warn, fail, strict_push=strict_push)
 
@@ -212,17 +216,19 @@ class Command(BaseCommand):
     def _check_migrations(ok, fail, *, database_ready: bool):
         if not database_ready:
             fail("migrations", "skipped because database connectivity failed")
-            return
+            return False
         try:
             connection = connections["default"]
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
             if plan:
                 fail("migrations", f"{len(plan)} unapplied migrations")
-            else:
-                ok("migrations", "all applied")
+                return False
+            ok("migrations", "all applied")
+            return True
         except Exception as exc:  # pragma: no cover - runtime dependent
             fail("migrations", str(exc))
+            return False
 
     @staticmethod
     def _check_cache(ok, fail):
@@ -281,9 +287,35 @@ class Command(BaseCommand):
         ok("email_backend", backend)
 
     @staticmethod
-    def _check_superuser(ok, warn, fail, *, require_superuser: bool, database_ready: bool):
+    def _check_sms_backend(ok, warn, fail):
+        status = get_sms_configuration_status()
+        if not status.get("supported", False):
+            fail("sms_backend", status.get("message", "unsupported SMS provider"))
+            return
+
+        provider = status.get("provider", "unknown")
+        optional_missing = list(status.get("optional_missing") or [])
+
+        if status.get("configured", False):
+            details = f"{provider} configured"
+            if optional_missing:
+                details += f" (optional missing: {', '.join(optional_missing)})"
+            ok("sms_backend", details)
+            return
+
+        warn("sms_backend", status.get("message", f"{provider} not configured"))
+
+    @staticmethod
+    def _check_superuser(ok, warn, fail, *, require_superuser: bool, database_ready: bool, migrations_ready: bool):
         if not database_ready:
             message = "skipped because database connectivity failed"
+            if require_superuser:
+                fail("superuser", message)
+            else:
+                warn("superuser", message)
+            return
+        if not migrations_ready:
+            message = "skipped because migrations are not fully applied"
             if require_superuser:
                 fail("superuser", message)
             else:

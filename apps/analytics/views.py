@@ -19,6 +19,7 @@ from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
 from apps.core.permissions import IsAdminOrModerator
+from apps.payments.freemium import Feature, can_access_feature
 from apps.resources.serializers import ResourceListSerializer
 
 from .services import AnalyticsService, DashboardChartService
@@ -34,12 +35,30 @@ def _safe_positive_int(value, default, minimum=1, maximum=365):
     return max(minimum, min(parsed, maximum))
 
 
+def _advanced_analytics_feature_denied(user):
+    has_access, reason = can_access_feature(user, Feature.ADVANCED_ANALYTICS)
+    if has_access:
+        return None
+    return Response(
+        {
+            "error": "Feature not available",
+            "reason": reason,
+            "feature": Feature.ADVANCED_ANALYTICS.value,
+            "upgrade_url": "/settings/billing/upgrade/",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 class DashboardView(APIView):
     """Dashboard analytics view."""
 
     permission_classes = [IsAuthenticated, IsAdminOrModerator]
 
     def get(self, request, *args, **kwargs):
+        denied_response = _advanced_analytics_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         period = request.query_params.get("period", "month")
         stats = AnalyticsService.get_admin_dashboard_payload(period=period)
         return Response(stats)
@@ -51,6 +70,9 @@ class UserActivitySummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        denied_response = _advanced_analytics_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -66,6 +88,9 @@ class UserEngagementScoreView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        denied_response = _advanced_analytics_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         score = AnalyticsService.get_user_engagement_score(request.user)
         return Response({"engagement_score": score})
 
@@ -76,6 +101,9 @@ class UserActivityHeatmapView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        denied_response = _advanced_analytics_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         days = _safe_positive_int(
             request.query_params.get("days"),
             default=30,
@@ -111,6 +139,9 @@ class ResourceAnalyticsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        denied_response = _advanced_analytics_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         resource_id = request.query_params.get("resource_id")
         if not resource_id:
             return Response({"error": "resource_id required"}, status=400)

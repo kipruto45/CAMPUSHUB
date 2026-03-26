@@ -712,6 +712,13 @@ class ChatbotService:
         if not normalized_message:
             return 'general'
 
+        question_phrases = ('how do', 'where do', 'can i', 'how can', 'what is')
+        if knowledge_match and (
+            normalized_message.endswith('?')
+            or any(phrase in normalized_message for phrase in question_phrases)
+        ):
+            return 'platform_help'
+
         intent_scores = {}
         for intent, keywords in cls.INTENT_KEYWORDS.items():
             score = sum(

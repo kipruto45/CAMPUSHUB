@@ -6,6 +6,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from decimal import Decimal
@@ -14,6 +15,7 @@ from apps.payments.models import Plan, Subscription, Payment
 from apps.payments.services import StripeService
 from apps.payments.providers import PaymentService
 from apps.payments.providers import handle_paypal_webhook, handle_mobile_money_webhook
+from apps.payments.views import payment_service
 
 
 @pytest.fixture
@@ -183,7 +185,19 @@ class TestPaymentEndpoints:
         
         assert response.status_code == 200
         assert "plans" in response.data
+        assert "providers" in response.data
         assert len(response.data["plans"]) >= 1
+
+    def test_get_payment_provider_statuses(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        response = api_client.get("/api/payments/providers/")
+
+        assert response.status_code == 200
+        assert "providers" in response.data
+        assert "stripe" in response.data["providers"]
+        assert "paypal" in response.data["providers"]
+        assert "mobile_money" in response.data["providers"]
 
     def test_get_subscription(self, api_client, user, plan):
         """Test GET /api/payments/subscription/"""
@@ -234,6 +248,139 @@ class TestPaymentEndpoints:
         
         assert response.status_code == 200
         assert "storage_gb" in response.data
+
+    def test_create_subscription_with_generic_provider_links_payment(self, api_client, user, plan):
+        api_client.force_authenticate(user=user)
+
+        class StubProvider:
+            def create_payment(self, amount, currency, metadata):
+                return {
+                    "success": True,
+                    "payment_id": "PAYPAL-SUB-001",
+                    "checkout_url": "https://example.com/paypal/checkout",
+                }
+
+            def verify_payment(self, payment_id):
+                return {"success": True, "status": "COMPLETED"}
+
+            def process_webhook(self, payload, signature):
+                return {"success": True, "event_type": "PAYMENT.CAPTURE.COMPLETED", "data": {}}
+
+            def refund_payment(self, payment_id, amount=None):
+                return {"success": True}
+
+        with patch.dict(payment_service.providers, {"paypal": StubProvider()}, clear=False):
+            response = api_client.post(
+                "/api/payments/subscription/",
+                {
+                    "plan_id": str(plan.id),
+                    "billing_period": "monthly",
+                    "provider": "paypal",
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.data["provider"] == "paypal"
+        assert response.data["checkout_url"] == "https://example.com/paypal/checkout"
+
+        subscription = Subscription.objects.get(id=response.data["subscription_id"])
+        payment = Payment.objects.get(id=response.data["payment_id"])
+
+        assert payment.subscription_id == subscription.id
+        assert payment.payment_type == "subscription"
+        assert payment.metadata.get("provider") == "paypal"
+        assert subscription.status == "unpaid"
+
+    def test_start_trial_sets_trial_start_and_blocks_reuse(self, api_client, user, plan):
+        api_client.force_authenticate(user=user)
+
+        response = api_client.post("/api/payments/trial/", {}, format="json")
+
+        assert response.status_code == 200
+        assert response.data["tier"] == "basic"
+        assert response.data["duration_days"] == 7
+        subscription = Subscription.objects.get(id=response.data["subscription_id"])
+        assert subscription.status == "trialing"
+        assert subscription.plan.tier == "basic"
+        assert subscription.trial_start is not None
+        assert subscription.trial_end is not None
+        assert subscription.metadata.get("trial") is True
+        assert subscription.metadata.get("trial_duration_days") == 7
+
+        second_response = api_client.post("/api/payments/trial/", {}, format="json")
+        assert second_response.status_code == 400
+        assert "already used your trial" in second_response.data["error"].lower()
+
+    def test_admin_trial_uses_premium_for_seven_days(self, api_client):
+        admin_user = get_user_model().objects.create_user(
+            email="billing-admin@example.com",
+            password="testpass123",
+            role="ADMIN",
+        )
+        api_client.force_authenticate(user=admin_user)
+
+        response = api_client.post("/api/payments/trial/", {}, format="json")
+
+        assert response.status_code == 200
+        assert response.data["tier"] == "premium"
+        assert response.data["duration_days"] == 7
+        subscription = Subscription.objects.get(id=response.data["subscription_id"])
+        assert subscription.plan.tier == "premium"
+
+    def test_expired_trial_downgrades_user_and_sends_upgrade_notifications(
+        self,
+        api_client,
+        user,
+        mailoutbox,
+    ):
+        api_client.force_authenticate(user=user)
+        user.phone_number = "+254700000001"
+        user.save(update_fields=["phone_number", "updated_at"])
+
+        trial_response = api_client.post("/api/payments/trial/", {}, format="json")
+        subscription = Subscription.objects.get(id=trial_response.data["subscription_id"])
+        expired_at = timezone.now() - timezone.timedelta(minutes=5)
+        started_at = expired_at - timezone.timedelta(days=7)
+        subscription.status = "trialing"
+        subscription.trial_start = started_at
+        subscription.trial_end = expired_at
+        subscription.current_period_start = started_at
+        subscription.current_period_end = expired_at
+        subscription.metadata = {
+            "trial": True,
+            "trial_duration_days": 7,
+        }
+        subscription.save(
+            update_fields=[
+                "status",
+                "trial_start",
+                "trial_end",
+                "current_period_start",
+                "current_period_end",
+                "metadata",
+                "updated_at",
+            ]
+        )
+
+        with patch(
+            "apps.core.sms.sms_service.send_trial_expired_notice",
+            return_value={"success": True},
+        ) as mock_sms:
+            response = api_client.get("/api/payments/feature-access/")
+            second_response = api_client.get("/api/payments/feature-access/")
+
+        subscription.refresh_from_db()
+
+        assert response.status_code == 200
+        assert second_response.status_code == 200
+        assert response.data["tier"] == "free"
+        assert response.data["trial_expired"] is True
+        assert response.data["show_upgrade_prompt"] is True
+        assert subscription.status == "canceled"
+        assert len(mailoutbox) == 1
+        assert "free trial has ended" in mailoutbox[0].subject.lower()
+        assert mock_sms.call_count == 1
 
 
 @pytest.mark.django_db
@@ -347,6 +494,47 @@ class TestMultiProviderPayments:
         payment = Payment.objects.get(id=result["local_payment_id"])
         assert payment.metadata.get("provider") == "mobile_money"
         assert payment.metadata.get("provider_payment_id") == "MPESA_ALIAS_001"
+
+    def test_create_payment_for_mobile_money_forces_kes_currency(self, db, user):
+        captured = {}
+
+        class Stub:
+            def create_payment(self, amount, currency, metadata):
+                captured["currency"] = currency
+                return {
+                    "success": True,
+                    "payment_id": "MMKES001",
+                    "checkout_url": None,
+                    "instructions": {"message": "stub"},
+                }
+
+            def verify_payment(self, payment_id):
+                return {"success": True, "status": "COMPLETED"}
+
+            def process_webhook(self, payload, signature):
+                return {"success": True, "event_type": "COMPLETED", "data": {}}
+
+            def refund_payment(self, payment_id, amount=None):
+                return {"success": True}
+
+        service = PaymentService()
+        service.providers["mobile_money"] = Stub()
+
+        result = service.create_payment(
+            provider="mobile_money",
+            amount=Decimal("15.00"),
+            currency="USD",
+            description="Force KES",
+            user=user,
+            payment_type="one_time",
+            phone_number="0712345678",
+        )
+
+        assert result["success"] is True
+        assert captured["currency"] == "KES"
+
+        payment = Payment.objects.get(id=result["local_payment_id"])
+        assert payment.currency == "KES"
 
     def test_duplicate_success_is_idempotent(self, db, user):
         service = PaymentService()

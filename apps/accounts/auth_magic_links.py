@@ -52,6 +52,7 @@ class MagicLinkResult:
     access: Optional[str] = None
     refresh: Optional[str] = None
     user_id: Optional[int] = None
+    email: Optional[str] = None
     expires_at: Optional[datetime] = None
 
 
@@ -312,6 +313,7 @@ class MagicLinkService:
                 message=EMAIL_NOT_VERIFIED_MESSAGE,
                 code=EMAIL_NOT_VERIFIED_CODE,
                 user_id=user.id,
+                email=user.email,
             )
 
         try:
@@ -349,6 +351,7 @@ class MagicLinkService:
             access=str(refresh.access_token),
             refresh=str(refresh),
             user_id=user.id,
+            email=user.email,
         )
 
     def resend_rate_limit_check(self, email: str) -> Tuple[bool, str]:

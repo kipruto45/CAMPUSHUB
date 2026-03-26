@@ -360,6 +360,26 @@ def cleanup_deleted_accounts(self):
     return f"Purged {count} deleted accounts"
 
 
+@app.task(bind=True)
+def process_expired_trials(self):
+    """Expire due free trials and notify users to upgrade."""
+    from apps.payments.freemium import process_expired_trials as process_trials
+
+    expired = process_trials()
+    logger.info("Processed %s expired trial subscriptions", expired)
+    return f"Processed {expired} expired trial subscriptions"
+
+
+@app.task(bind=True)
+def send_subscription_expiry_notifications(self):
+    """Send subscription renewal reminders for paid plans nearing expiry."""
+    from apps.payments.notifications import send_expiry_reminders
+
+    send_expiry_reminders()
+    logger.info("Sent subscription expiry reminders")
+    return "Sent subscription expiry reminders"
+
+
 # ========================
 # Celery Beat Schedule
 # ========================
@@ -400,6 +420,14 @@ CELERY_BEAT_SCHEDULE = {
     "engagement-inactivity-reminders": {
         "task": "apps.notifications.tasks.send_inactivity_reminders",
         "schedule": crontab(hour=18, minute=0),
+    },
+    "process-expired-trials": {
+        "task": "apps.core.celery_tasks.process_expired_trials",
+        "schedule": crontab(hour=0, minute=30),
+    },
+    "subscription-expiry-reminders": {
+        "task": "apps.core.celery_tasks.send_subscription_expiry_notifications",
+        "schedule": crontab(hour=8, minute=0),
     },
     "archive-notifications": {
         "task": "apps.core.celery_tasks.archive_old_notifications",

@@ -57,11 +57,19 @@ class StripePaymentProvider(PaymentProvider):
         stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", None)
         self.webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
 
+    def is_configured(self) -> tuple[bool, str]:
+        if not str(getattr(settings, "STRIPE_SECRET_KEY", "") or "").strip():
+            return False, "Stripe is not configured. Set STRIPE_SECRET_KEY."
+        return True, ""
+
     def create_payment(self, amount: Decimal, currency: str, metadata: dict) -> Dict[str, Any]:
         """Create Stripe checkout session."""
         import stripe
 
         try:
+            configured, error = self.is_configured()
+            if not configured:
+                return {"success": False, "error": error}
             base_url = str(getattr(settings, "BASE_URL", "http://localhost:8000")).rstrip("/")
             success_url = metadata.get("success_url") or f"{base_url}/settings/billing/success/"
             cancel_url = metadata.get("cancel_url") or f"{base_url}/settings/billing/cancel/"
@@ -156,10 +164,16 @@ class PayPalPaymentProvider(PaymentProvider):
         self.base_url = "https://api-m.sandbox.paypal.com" if self.mode == "sandbox" else "https://api-m.paypal.com"
         self.request_timeout = int(getattr(settings, "PAYPAL_TIMEOUT_SECONDS", 30))
 
+    def is_configured(self) -> tuple[bool, str]:
+        if not self.client_id or not self.client_secret:
+            return False, "PayPal is not configured. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET."
+        return True, ""
+
     def _get_access_token(self) -> Optional[str]:
         """Get PayPal access token."""
-        if not self.client_id or not self.client_secret:
-            logger.error("PayPal credentials are not configured")
+        configured, error = self.is_configured()
+        if not configured:
+            logger.error(error)
             return None
 
         try:
@@ -355,6 +369,20 @@ class MobileMoneyProvider(PaymentProvider):
     def _is_mpesa(self) -> bool:
         return self.provider in {"mpesa", "m-pesa"}
 
+    def is_configured(self) -> tuple[bool, str]:
+        if not self._is_mpesa():
+            return True, ""
+        required = {
+            "MOBILE_MONEY_SHORT_CODE": self.short_code,
+            "MOBILE_MONEY_CONSUMER_KEY": self.consumer_key,
+            "MOBILE_MONEY_CONSUMER_SECRET": self.consumer_secret,
+            "MOBILE_MONEY_PASSKEY": self.passkey,
+        }
+        missing = [k for k, v in required.items() if not str(v or "").strip()]
+        if missing:
+            return False, f"Mobile Money is not configured: {', '.join(missing)}"
+        return True, ""
+
     def _normalize_phone_number(self, phone_number: str) -> Optional[str]:
         digits = "".join(ch for ch in str(phone_number or "") if ch.isdigit())
         if not digits:
@@ -457,18 +485,9 @@ class MobileMoneyProvider(PaymentProvider):
         if not phone_number:
             return {"success": False, "error": "Valid phone_number is required for M-Pesa STK push"}
 
-        required = {
-            "MOBILE_MONEY_SHORT_CODE": self.short_code,
-            "MOBILE_MONEY_CONSUMER_KEY": self.consumer_key,
-            "MOBILE_MONEY_CONSUMER_SECRET": self.consumer_secret,
-            "MOBILE_MONEY_PASSKEY": self.passkey,
-        }
-        missing = [k for k, v in required.items() if not str(v or "").strip()]
-        if missing:
-            return {
-                "success": False,
-                "error": f"Missing mobile money configuration: {', '.join(missing)}",
-            }
+        configured, error = self.is_configured()
+        if not configured:
+            return {"success": False, "error": error}
 
         token, token_error = self._get_access_token()
         if not token:
@@ -702,6 +721,37 @@ class PaymentService:
         provider_key = str(provider or "").strip().lower()
         return self.PROVIDER_ALIASES.get(provider_key, provider_key)
 
+    def _resolve_currency(self, provider: str, currency: str | None) -> str:
+        normalized = str(currency or "USD").strip().upper() or "USD"
+        if provider == "mobile_money":
+            return "KES"
+        return normalized
+
+    def get_provider_statuses(self) -> Dict[str, Dict[str, Any]]:
+        statuses: Dict[str, Dict[str, Any]] = {}
+        for key in self.PROVIDERS:
+            provider = self.providers.get(key)
+            if provider is None:
+                statuses[key] = {
+                    "configured": False,
+                    "error": f"{key.replace('_', ' ').title()} is unavailable on the server.",
+                }
+                continue
+            checker = getattr(provider, "is_configured", None)
+            configured = True
+            error = ""
+            if callable(checker):
+                try:
+                    configured, error = checker()
+                except Exception as exc:
+                    configured = False
+                    error = str(exc)
+            statuses[key] = {
+                "configured": bool(configured),
+                "error": error,
+            }
+        return statuses
+
     def create_payment(
         self,
         provider: str,
@@ -710,18 +760,27 @@ class PaymentService:
         description: str = None,
         user=None,
         payment_type: str = "one_time",
+        subscription=None,
         **metadata,
     ) -> Dict[str, Any]:
         """Create a payment with specified provider."""
         provider = self._resolve_provider(provider)
         if provider not in self.providers:
+            provider_label = provider.replace("_", " ").title()
+            if provider in self.PROVIDERS:
+                return {
+                    "success": False,
+                    "error": f"{provider_label} is unavailable on the server.",
+                }
             return {"success": False, "error": f"Unknown provider: {provider}"}
+        currency = self._resolve_currency(provider, currency)
 
         from apps.payments.models import Payment
 
         with transaction.atomic():
             payment = Payment.objects.create(
                 user=user,
+                subscription=subscription,
                 amount=amount,
                 currency=currency,
                 payment_type=payment_type,

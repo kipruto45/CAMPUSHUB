@@ -19,7 +19,11 @@ from apps.core.models import (
     EmailCampaign,
     APIUsageLog,
 )
-from apps.core.sms import AfricasTalkingSMSProvider, SMSService
+from apps.core.sms import (
+    AfricasTalkingSMSProvider,
+    SMSService,
+    get_sms_configuration_status,
+)
 
 User = get_user_model()
 
@@ -259,6 +263,31 @@ class TestSMSService:
         service = SMSService()
 
         assert isinstance(service.provider, AfricasTalkingSMSProvider)
+
+    def test_sms_configuration_status_reports_missing_required_fields(self, settings):
+        settings.SMS_PROVIDER = "africas_talking"
+        settings.AFRICAS_TALKING_USERNAME = ""
+        settings.AFRICAS_TALKING_API_KEY = ""
+        settings.AFRICAS_TALKING_SHORT_CODE = ""
+
+        status = get_sms_configuration_status()
+
+        assert status["provider"] == "africastalking"
+        assert status["configured"] is False
+        assert "AFRICAS_TALKING_USERNAME" in status["missing"]
+        assert "AFRICAS_TALKING_API_KEY" in status["missing"]
+        assert "AFRICAS_TALKING_SHORT_CODE" in status["optional_missing"]
+
+    def test_sms_configuration_status_accepts_africas_talking_without_shortcode(self, settings):
+        settings.SMS_PROVIDER = "africas_talking"
+        settings.AFRICAS_TALKING_USERNAME = "sandbox"
+        settings.AFRICAS_TALKING_API_KEY = "key"
+        settings.AFRICAS_TALKING_SHORT_CODE = ""
+
+        status = get_sms_configuration_status()
+
+        assert status["configured"] is True
+        assert status["optional_missing"] == ["AFRICAS_TALKING_SHORT_CODE"]
 
 
 # =========================

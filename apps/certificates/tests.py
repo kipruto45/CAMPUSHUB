@@ -4,10 +4,16 @@ Tests for certificates app.
 import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.certificates.models import Certificate, CertificateTemplate, CertificateType
 
 User = get_user_model()
+
+
+@pytest.fixture
+def api_client():
+    return APIClient()
 
 
 @pytest.fixture
@@ -178,3 +184,13 @@ class TestCertificateModel:
         assert "title" in data
         assert "recipient_name" in data
         assert "verification_url" in data
+
+
+@pytest.mark.django_db
+def test_certificate_types_require_certificate_plan(api_client, user):
+    api_client.force_authenticate(user=user)
+
+    response = api_client.get("/api/certificates/types/")
+
+    assert response.status_code == 403
+    assert response.data["feature"] == "certificates"

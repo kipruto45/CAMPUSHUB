@@ -375,7 +375,7 @@ class LoginView(APIView):
     {
         "email": "user@example.com",
         "password": "password",
-        "remember_me": true  # Optional - extends session to 30 days
+        "remember_me": true  # Optional - defaults to a 30-day remembered session
     }
     """
 
@@ -419,8 +419,16 @@ class LoginView(APIView):
         if login_identifier:
             cache.delete(attempts_key)
 
-        # Check for remember_me flag
-        remember_me = _parse_boolean_flag(request.data.get("remember_me", False))
+        try:
+            from apps.payments.freemium import ensure_default_trial
+
+            ensure_default_trial(user, source="web_login")
+        except Exception:
+            logger.exception("Failed to auto-provision trial for user_id=%s", user.id)
+
+        # Default to remembered sessions so users stay signed in for 30 days
+        # unless they explicitly opt out.
+        remember_me = _parse_boolean_flag(request.data.get("remember_me", True))
 
         # Generate tokens (with remember_me, stays logged in longer)
         tokens = generate_tokens_for_user(user, remember_me=remember_me)
@@ -1196,13 +1204,13 @@ class MagicLinkConsumeView(APIView):
                 if result.get("code") == EMAIL_NOT_VERIFIED_CODE
                 else status.HTTP_400_BAD_REQUEST
             )
-            return Response(
-                {
-                    "detail": result["message"],
-                    "code": result.get("code"),
-                },
-                status=response_status,
-            )
+            payload = {
+                "detail": result["message"],
+                "code": result.get("code"),
+            }
+            if result.get("email"):
+                payload["email"] = result["email"]
+            return Response(payload, status=response_status)
 
         user = User.objects.get(id=result["user_id"], is_active=True)
         user.update_last_login()

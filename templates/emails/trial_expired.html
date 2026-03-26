@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Free Trial Ended</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #dc2626 0%, #ea580c 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .cta { display: inline-block; background: #2563eb; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
+        .list { padding-left: 18px; }
+        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Your Free Trial Has Ended</h1>
+    </div>
+    <div class="content">
+        <p>Hello {{ user.first_name|default:user.username }},</p>
+        <p>Your CampusHub {{ plan_name }} free trial has ended.</p>
+        <p>Your account is now back on the Free plan, which includes only the core study tools.</p>
+        <p>Upgrade now to restore premium access, including:</p>
+        <ul class="list">
+            <li>AI study tools and chat</li>
+            <li>Advanced progress and analytics</li>
+            <li>Certificates and premium exports</li>
+            <li>Higher limits and added integrations</li>
+        </ul>
+        <a href="{{ upgrade_url|default:'#' }}" class="cta">Upgrade Your Plan</a>
+        <div class="footer">
+            <p>© 2026 CampusHub. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

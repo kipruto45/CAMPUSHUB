@@ -504,6 +504,19 @@ class PasswordlessAuthService:
             user_agent=user_agent,
         )
         if result.success:
+            try:
+                from django.contrib.auth import get_user_model
+                from apps.payments.freemium import ensure_default_trial
+
+                User = get_user_model()
+                user = User.objects.filter(id=result.user_id).first()
+                if user:
+                    ensure_default_trial(user, source="magic_link")
+            except Exception:
+                logger.exception(
+                    "Failed to auto-provision magic-link trial for user_id=%s",
+                    result.user_id,
+                )
             return {
                 "success": True,
                 "message": result.message,
@@ -511,11 +524,13 @@ class PasswordlessAuthService:
                 "access": result.access,
                 "refresh": result.refresh,
                 "user_id": result.user_id,
+                "email": result.email,
             }
         return {
             "success": False,
             "message": result.message,
             "code": result.code,
+            "email": result.email,
         }
 
     @staticmethod
@@ -624,9 +639,17 @@ class PasswordlessAuthService:
             # Generate JWT tokens
             from django.contrib.auth import get_user_model
             from rest_framework_simplejwt.tokens import RefreshToken
+            from apps.payments.freemium import ensure_default_trial
 
             User = get_user_model()
             user = User.objects.get(id=result.user_id)
+            try:
+                ensure_default_trial(user, source="passkey")
+            except Exception:
+                logger.exception(
+                    "Failed to auto-provision passkey trial for user_id=%s",
+                    user.id,
+                )
             refresh = RefreshToken.for_user(user)
 
             return {

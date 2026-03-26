@@ -56,29 +56,28 @@ class JWTAuthentication(JWTAuthentication):
             return None
 
 
-def generate_tokens_for_user(user, remember_me=False):
+def generate_tokens_for_user(user, remember_me=True):
     """
     Generate access and refresh tokens for a user.
 
     Args:
         user: The user to generate tokens for
-        remember_me: If True, extend refresh lifetime for "remember me" sessions.
-                    If False, uses the default SIMPLE_JWT refresh lifetime.
+        remember_me: If True, keep the refresh token alive for the remembered
+            session window. If False, issue a shorter session token.
     """
     from datetime import timedelta
 
     from rest_framework_simplejwt.tokens import RefreshToken
 
+    from django.conf import settings
+
     # Create refresh token
     refresh = RefreshToken.for_user(user)
 
-    # Keep "remember me" deterministic and bounded for compatibility with
-    # legacy clients/tests that expect a ~90 day refresh token.
-    if remember_me:
-        from django.conf import settings
-
-        remember_days = int(getattr(settings, "JWT_REMEMBER_ME_DAYS", 90) or 90)
-        refresh.set_exp(lifetime=timedelta(days=max(1, remember_days)))
+    remember_days = int(getattr(settings, "JWT_REMEMBER_ME_DAYS", 30) or 30)
+    session_days = int(getattr(settings, "JWT_SESSION_DAYS", 1) or 1)
+    refresh_days = remember_days if remember_me else session_days
+    refresh.set_exp(lifetime=timedelta(days=max(1, refresh_days)))
 
     return {
         "access": str(refresh.access_token),

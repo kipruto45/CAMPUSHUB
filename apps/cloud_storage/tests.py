@@ -24,7 +24,6 @@ def user(db):
         password="testpass123",
     )
 
-
 @pytest.mark.django_db
 class TestCloudStorageAccountModel:
     """Tests for CloudStorageAccount model."""

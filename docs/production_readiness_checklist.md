@@ -1,7 +1,7 @@
 # CampusHub Production Readiness Checklist
 
 This checklist reflects the backend `production_readiness_check` command and the
-current repo state as of 2026-03-09.
+current repo state as of 2026-03-27.
 
 ## 1. Environment
 
@@ -99,8 +99,45 @@ Verify:
 - welcome emails
 - password reset emails
 - verification emails
+- trial expired emails
 
-## 8. OAuth
+Validate SMTP wiring:
+
+```bash
+python manage.py email_delivery_check --to you@example.com
+```
+
+## 8. SMS / Trial Expiry Alerts
+
+Trial-expiry notifications now use the shared SMS pipeline. Configure Africa's
+Talking or a generic SMS provider:
+
+```env
+SMS_PROVIDER=africastalking
+AFRICAS_TALKING_USERNAME=<username>
+AFRICAS_TALKING_API_KEY=<api-key>
+AFRICAS_TALKING_SHORT_CODE=
+```
+
+Notes:
+
+- `AFRICAS_TALKING_SHORT_CODE` is optional and can stay blank
+- trial-expired SMS alerts only send when the user has a phone number
+- expired trials are processed by Celery Beat via `process-expired-trials`
+
+Validate SMS wiring without sending a live message:
+
+```bash
+python manage.py sms_delivery_check
+```
+
+Optionally send a real SMS test:
+
+```bash
+python manage.py sms_delivery_check --send --to +254700000001
+```
+
+## 9. OAuth
 
 Update OAuth redirect URIs to the production API domain:
 
@@ -114,7 +151,7 @@ Also update the same redirect URLs in:
 - Google Cloud Console
 - Microsoft Entra / Azure App Registration
 
-## 9. Mobile App
+## 10. Mobile App
 
 For release builds, point the app to production:
 
@@ -128,7 +165,25 @@ Also verify:
 - OAuth callback flow
 - push notification registration
 
-## 10. Secrets Hygiene
+## 11. Trial / Subscription Enforcement
+
+Confirm the plan system is operating with the intended restrictions:
+
+- free trial lasts 7 days
+- expired trials downgrade the user back to free access
+- students on free cannot access premium-only AI, analytics, certificates, or cloud integrations
+- admins require an entitled plan or active admin trial to reach admin surfaces
+- upgrade prompts disappear after a paid subscription becomes active
+
+Operational checks:
+
+```bash
+python manage.py production_readiness_check
+python manage.py sms_delivery_check
+python manage.py email_delivery_check --to you@example.com
+```
+
+## 12. Secrets Hygiene
 
 Do not keep live secrets in tracked files.
 
@@ -141,7 +196,7 @@ Current repo policy now ignores:
 
 If live secrets were previously shared or committed, rotate them before deployment.
 
-## 11. Final Commands
+## 13. Final Commands
 
 Run before release:
 
@@ -149,6 +204,8 @@ Run before release:
 python manage.py migrate
 python manage.py check
 python manage.py production_readiness_check
+python manage.py sms_delivery_check
+python manage.py email_delivery_check --to you@example.com
 ```
 
 For a local dry run where SQLite is still in use:

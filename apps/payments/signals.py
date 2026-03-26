@@ -132,14 +132,11 @@ def storage_upgrade_post_save(sender, instance, created, **kwargs):
 
 def sync_user_storage_from_subscription(user):
     """Sync user's storage limit from their active subscription."""
-    from apps.payments.models import Subscription
+    from apps.payments.freemium import get_active_subscription
+
+    subscription = get_active_subscription(user)
     
-    subscription = Subscription.objects.filter(
-        user=user,
-        status__in=["active", "trialing"]
-    ).select_related("plan").first()
-    
-    if subscription:
+    if subscription and subscription.plan:
         # Calculate total storage (base + upgrades)
         base_storage = subscription.plan.storage_limit_gb
         
@@ -158,7 +155,8 @@ def sync_user_storage_from_subscription(user):
 
 def get_user_plan_limits(user):
     """Get effective plan limits for a user."""
-    from apps.payments.models import Subscription, StorageUpgrade
+    from apps.payments.freemium import get_active_subscription
+    from apps.payments.models import StorageUpgrade
     from django.utils import timezone
     
     # Get base limits from plan
@@ -174,12 +172,9 @@ def get_user_plan_limits(user):
     }
     
     # Get active subscription
-    subscription = Subscription.objects.filter(
-        user=user,
-        status__in=["active", "trialing"]
-    ).select_related("plan").first()
+    subscription = get_active_subscription(user)
     
-    if subscription and subscription.is_active:
+    if subscription and subscription.plan:
         limits.update({
             "storage_gb": subscription.plan.storage_limit_gb,
             "max_upload_mb": subscription.plan.max_upload_size_mb,

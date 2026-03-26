@@ -443,7 +443,14 @@ def mobile_login(request):
             request=request,
         )
 
-    remember_me = _parse_boolean_flag(payload.get("remember_me", False))
+    try:
+        from apps.payments.freemium import ensure_default_trial
+
+        ensure_default_trial(user, source="mobile_login")
+    except Exception:
+        logger.exception("Failed to auto-provision mobile trial for user_id=%s", user.id)
+
+    remember_me = _parse_boolean_flag(payload.get("remember_me", True))
     tokens = generate_tokens_for_user(user, remember_me=remember_me)
     user.update_last_login()
 

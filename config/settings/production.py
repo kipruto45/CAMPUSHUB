@@ -2,6 +2,7 @@
 Django production settings.
 """
 
+from copy import deepcopy
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -46,6 +47,25 @@ CSRF_TRUSTED_ORIGINS = [
 # Production-specific logging
 default_log_file = "/var/log/campushub/django.log"
 log_file = config("DJANGO_LOG_FILE", default=default_log_file)
+LOGGING = deepcopy(globals().get("LOGGING", {}))
+LOGGING.setdefault("handlers", {})
+LOGGING["handlers"].setdefault(
+    "file",
+    {
+        "class": "logging.FileHandler",
+        "filename": str(BASE_DIR / "logs" / "django.log"),  # noqa: F405
+        "formatter": "verbose",
+    },
+)
+LOGGING.setdefault("loggers", {})
+LOGGING["loggers"].setdefault(
+    "apps",
+    {
+        "handlers": ["console"],
+        "level": "INFO",
+        "propagate": False,
+    },
+)
 try:
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     LOGGING["handlers"]["file"]["filename"] = log_file  # noqa: F405

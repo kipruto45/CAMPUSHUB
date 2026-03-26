@@ -274,6 +274,59 @@ class PaymentNotificationService:
             return False
 
     @staticmethod
+    def send_trial_expired_email(
+        user,
+        plan_name: str,
+        upgrade_url: str = None,
+    ) -> bool:
+        """Send a one-time email when a free trial elapses."""
+        if not getattr(user, "email", None):
+            return False
+
+        try:
+            base_url = get_frontend_base_url()
+            upgrade_url = upgrade_url or f"{base_url}/settings/billing/"
+            context = {
+                "user": user,
+                "plan_name": plan_name,
+                "upgrade_url": upgrade_url,
+                "date": timezone.now().strftime("%B %d, %Y"),
+            }
+            subject = "Your CampusHub free trial has ended"
+            html_content = render_to_string("emails/trial_expired.html", context)
+            plain_message = strip_tags(html_content)
+
+            return EmailService.send_email(
+                subject=subject,
+                message=plain_message,
+                recipient_list=[user.email],
+                html_message=html_content,
+            )
+        except Exception as e:
+            logger.error(f"Failed to send trial expired email: {e}")
+            return False
+
+    @staticmethod
+    def send_trial_expired_sms(
+        user,
+        plan_name: str,
+    ) -> bool:
+        """Send a one-time SMS when a free trial elapses."""
+        if not getattr(user, "phone_number", None):
+            return False
+
+        try:
+            from apps.core.sms import sms_service
+
+            return sms_service.send_trial_expired_notice(
+                phone=user.phone_number,
+                plan_name=plan_name,
+            ).get("success", False)
+        except Exception as e:
+            logger.error(f"Failed to send trial expired SMS: {e}")
+            return False
+
+    @staticmethod
     def send_payment_due_reminder_email(
         user,
         amount: Decimal,

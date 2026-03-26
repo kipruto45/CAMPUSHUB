@@ -9,6 +9,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.payments.freemium import Feature, can_access_feature
+
 from .models import CloudStorageAccount, CloudFile
 from .services import CloudStorageService, GoogleDriveService, OneDriveService
 
@@ -25,7 +27,52 @@ def normalize_provider(raw: str):
     return provider
 
 
-class CloudStorageStatusView(APIView):
+def _integration_feature_denied(user):
+    has_access, reason = can_access_feature(user, Feature.ALL_INTEGRATIONS)
+    if has_access:
+        return None
+    return {
+        "error": "Feature not available",
+        "reason": reason,
+        "feature": Feature.ALL_INTEGRATIONS.value,
+        "upgrade_url": "/settings/billing/upgrade/",
+    }
+
+
+class CloudIntegrationAccessMixin:
+    """Require an integrations-enabled plan for cloud-drive actions."""
+
+    def dispatch(self, request, *args, **kwargs):
+        handler_kwargs = {key: value for key, value in kwargs.items() if key != "version"}
+        self.args = args
+        self.kwargs = handler_kwargs
+        request = self.initialize_request(request, *args, **kwargs)
+        self.request = request
+        self.headers = self.default_response_headers
+
+        try:
+            self.initial(request, *args, **kwargs)
+            denied_payload = _integration_feature_denied(request.user)
+            if denied_payload:
+                response = Response(
+                    denied_payload,
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            else:
+                handler = getattr(
+                    self,
+                    request.method.lower(),
+                    self.http_method_not_allowed,
+                )
+                response = handler(request, *args, **handler_kwargs)
+        except Exception as exc:
+            response = self.handle_exception(exc)
+
+        self.response = self.finalize_response(request, response, *args, **handler_kwargs)
+        return self.response
+
+
+class CloudStorageStatusView(CloudIntegrationAccessMixin, APIView):
     """Check if cloud storage is connected"""
     permission_classes = [IsAuthenticated]
     
@@ -49,7 +96,7 @@ class CloudStorageStatusView(APIView):
             return Response({'connected': False})
 
 
-class CloudStorageAccountView(APIView):
+class CloudStorageAccountView(CloudIntegrationAccessMixin, APIView):
     """Get connected cloud storage account info"""
     permission_classes = [IsAuthenticated]
     
@@ -79,7 +126,7 @@ class CloudStorageAccountView(APIView):
             return Response({'error': 'Account not connected'}, status=status.HTTP_404_NOT_FOUND)
 
 
-class CloudStorageConnectView(APIView):
+class CloudStorageConnectView(CloudIntegrationAccessMixin, APIView):
     """Initiate OAuth connection to cloud storage"""
     permission_classes = [IsAuthenticated]
     
@@ -103,7 +150,7 @@ class CloudStorageConnectView(APIView):
             return Response({'error': 'Invalid provider'}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CloudStorageOAuthCallbackView(APIView):
+class CloudStorageOAuthCallbackView(CloudIntegrationAccessMixin, APIView):
     """Handle OAuth callback from cloud storage"""
     permission_classes = [IsAuthenticated]
     
@@ -140,7 +187,7 @@ class CloudStorageOAuthCallbackView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CloudStorageDisconnectView(APIView):
+class CloudStorageDisconnectView(CloudIntegrationAccessMixin, APIView):
     """Disconnect cloud storage account"""
     permission_classes = [IsAuthenticated]
     
@@ -161,7 +208,7 @@ class CloudStorageDisconnectView(APIView):
             return Response({'error': 'Account not connected'}, status=status.HTTP_404_NOT_FOUND)
 
 
-class CloudStorageFilesView(APIView):
+class CloudStorageFilesView(CloudIntegrationAccessMixin, APIView):
     """List files from cloud storage"""
     permission_classes = [IsAuthenticated]
     
@@ -226,7 +273,7 @@ class CloudStorageFilesView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CloudStorageFoldersView(APIView):
+class CloudStorageFoldersView(CloudIntegrationAccessMixin, APIView):
     """List folders from cloud storage"""
     permission_classes = [IsAuthenticated]
     
@@ -260,7 +307,7 @@ class CloudStorageFoldersView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CloudStorageDownloadView(APIView):
+class CloudStorageDownloadView(CloudIntegrationAccessMixin, APIView):
     """Get download URL for a cloud file"""
     permission_classes = [IsAuthenticated]
     
@@ -286,7 +333,7 @@ class CloudStorageDownloadView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CloudStorageStorageView(APIView):
+class CloudStorageStorageView(CloudIntegrationAccessMixin, APIView):
     """Get storage quota information"""
     permission_classes = [IsAuthenticated]
     
@@ -332,7 +379,7 @@ class CloudStorageStorageView(APIView):
         })
 
 
-class CloudAccountsListView(APIView):
+class CloudAccountsListView(CloudIntegrationAccessMixin, APIView):
     """Get all connected cloud storage accounts"""
     permission_classes = [IsAuthenticated]
     
@@ -358,7 +405,7 @@ class CloudAccountsListView(APIView):
         })
 
 
-class CloudStorageSyncView(APIView):
+class CloudStorageSyncView(CloudIntegrationAccessMixin, APIView):
     """Trigger a sync operation with the provider"""
     permission_classes = [IsAuthenticated]
 
@@ -389,6 +436,9 @@ class CloudStorageSyncView(APIView):
 @permission_classes([IsAuthenticated])
 def cloud_storage_import(request, provider):
     """Import a file from cloud storage"""
+    denied_response = _integration_feature_denied(request.user)
+    if denied_response:
+        return denied_response
     try:
         provider = normalize_provider(provider)
     except ValueError:
@@ -420,6 +470,9 @@ def cloud_storage_import(request, provider):
 @permission_classes([IsAuthenticated])
 def cloud_storage_export(request, provider):
     """Export a resource to cloud storage"""
+    denied_response = _integration_feature_denied(request.user)
+    if denied_response:
+        return denied_response
     try:
         provider = normalize_provider(provider)
     except ValueError:

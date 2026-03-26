@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.analytics.models import (
     AnalyticsEvent,
@@ -21,6 +22,11 @@ from apps.analytics.models import (
 )
 
 User = get_user_model()
+
+
+@pytest.fixture
+def api_client():
+    return APIClient()
 
 
 @pytest.fixture
@@ -196,6 +202,16 @@ class TestDailyMetric:
         assert metric.total_comments == 100
         assert metric.total_ratings == 75
         assert metric.total_shares == 20
+
+
+@pytest.mark.django_db
+def test_user_activity_summary_blocks_free_plan_users(api_client, user):
+    api_client.force_authenticate(user=user)
+
+    response = api_client.get("/api/analytics/user/activity-summary/")
+
+    assert response.status_code == 403
+    assert response.data["feature"] == "advanced_analytics"
 
     def test_social_metrics(self):
         """Test social metrics."""

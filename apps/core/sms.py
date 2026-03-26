@@ -12,6 +12,63 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
+def normalize_sms_provider_name(raw_provider: str) -> str:
+    """Normalize SMS provider aliases to the canonical provider key."""
+    return str(raw_provider or "africastalking").strip().lower().replace("_", "").replace("-", "")
+
+
+def get_sms_configuration_status() -> Dict[str, Any]:
+    """Return SMS provider readiness information for commands and health checks."""
+    raw_provider = getattr(settings, "SMS_PROVIDER", "africastalking")
+    provider = normalize_sms_provider_name(raw_provider)
+
+    if provider == "africastalking":
+        required = {
+            "AFRICAS_TALKING_USERNAME": str(getattr(settings, "AFRICAS_TALKING_USERNAME", "") or "").strip(),
+            "AFRICAS_TALKING_API_KEY": str(getattr(settings, "AFRICAS_TALKING_API_KEY", "") or "").strip(),
+        }
+        optional = {
+            "AFRICAS_TALKING_SHORT_CODE": str(getattr(settings, "AFRICAS_TALKING_SHORT_CODE", "") or "").strip(),
+        }
+    elif provider == "generic":
+        required = {
+            "SMS_API_URL": str(getattr(settings, "SMS_API_URL", "") or "").strip(),
+        }
+        optional = {
+            "SMS_API_KEY": str(getattr(settings, "SMS_API_KEY", "") or "").strip(),
+            "SMS_SENDER_ID": str(getattr(settings, "SMS_SENDER_ID", "") or "").strip(),
+        }
+    else:
+        return {
+            "provider": provider,
+            "raw_provider": str(raw_provider or ""),
+            "configured": False,
+            "supported": False,
+            "missing": ["SMS_PROVIDER"],
+            "optional_missing": [],
+            "message": f"Unsupported SMS provider: {raw_provider}",
+        }
+
+    missing = [key for key, value in required.items() if not value]
+    optional_missing = [key for key, value in optional.items() if not value]
+    configured = not missing
+
+    if configured:
+        message = f"{provider} SMS provider is configured"
+    else:
+        message = f"{provider} SMS provider is missing required settings: {', '.join(missing)}"
+
+    return {
+        "provider": provider,
+        "raw_provider": str(raw_provider or ""),
+        "configured": configured,
+        "supported": True,
+        "missing": missing,
+        "optional_missing": optional_missing,
+        "message": message,
+    }
+
+
 class SMSProvider(ABC):
     """Base class for SMS providers."""
 
@@ -197,7 +254,7 @@ class SMSService:
             getattr(settings, "SMS_PROVIDER", "africastalking")
             or "africastalking"
         )
-        normalized_provider = provider_name.strip().lower().replace("_", "").replace("-", "")
+        normalized_provider = normalize_sms_provider_name(provider_name)
         provider_class = self.PROVIDERS.get(
             normalized_provider,
             AfricasTalkingSMSProvider,
@@ -224,6 +281,16 @@ class SMSService:
     ) -> Dict[str, Any]:
         """Send subscription expiry reminder."""
         message = f"CampusHub: Your {plan_name} subscription expires in {days_remaining} days. Renew now to continue premium features!"
+        return self.send(phone, message)
+
+    def send_trial_expired_notice(
+        self, phone: str, plan_name: str
+    ) -> Dict[str, Any]:
+        """Send free-trial expiry notice."""
+        message = (
+            f"CampusHub: Your 7-day {plan_name} trial has ended. "
+            "Upgrade now to continue using premium features."
+        )
         return self.send(phone, message)
 
     def send_payment_due_reminder(

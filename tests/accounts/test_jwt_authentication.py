@@ -16,15 +16,19 @@ def test_generate_tokens_for_user_default_and_remember_me(user):
     default_tokens = generate_tokens_for_user(user, remember_me=False)
     remember_tokens = generate_tokens_for_user(user, remember_me=True)
 
+    default_refresh = RefreshToken(default_tokens["refresh"])
     remember_refresh = RefreshToken(remember_tokens["refresh"])
 
     assert "access" in default_tokens and "refresh" in default_tokens
     assert "access" in remember_tokens and "refresh" in remember_tokens
 
+    default_exp = datetime.fromtimestamp(default_refresh["exp"], tz=timezone.utc)
     remember_exp = datetime.fromtimestamp(remember_refresh["exp"], tz=timezone.utc)
     now = datetime.now(tz=timezone.utc)
+    default_days = (default_exp - now).days
     remember_days = (remember_exp - now).days
-    assert 85 <= remember_days <= 95
+    assert 0 <= default_days <= 2
+    assert 25 <= remember_days <= 31
 
 
 @pytest.mark.django_db

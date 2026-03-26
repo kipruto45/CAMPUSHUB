@@ -18,6 +18,9 @@ PROD_OVERRIDES = dict(
     EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
     CELERY_BROKER_URL="redis://localhost:6379/0",
     CELERY_RESULT_BACKEND="redis://localhost:6379/0",
+    SMS_PROVIDER="africas_talking",
+    AFRICAS_TALKING_USERNAME="sandbox",
+    AFRICAS_TALKING_API_KEY="test-key",
 )
 PROD_OVERRIDES_WITH_CONSOLE_EMAIL = {
     **PROD_OVERRIDES,
@@ -225,6 +228,50 @@ def test_production_readiness_handles_database_failure_without_traceback(monkeyp
     },
     FCM_ENABLED=False,
     APNS_ENABLED=False,
+    **PROD_OVERRIDES,
+)
+def test_production_readiness_skips_superuser_check_when_migrations_are_pending(monkeypatch):
+    from apps.core.management.commands.production_readiness_check import Command
+
+    def fake_migrations(ok, fail, *, database_ready):
+        fail("migrations", "2 unapplied migrations")
+        return False
+
+    monkeypatch.setattr(
+        Command,
+        "_check_migrations",
+        staticmethod(fake_migrations),
+    )
+
+    out = StringIO()
+    with pytest.raises(CommandError):
+        call_command("production_readiness_check", "--allow-sqlite", stdout=out)
+    output = out.getvalue()
+    assert "[FAIL] migrations - 2 unapplied migrations" in output
+    assert "[WARN] superuser - skipped because migrations are not fully applied" in output
+
+
+@pytest.mark.django_db
+@override_settings(
+    ENVIRONMENT="production",
+    DEBUG=False,
+    SECRET_KEY=PROD_SECRET,
+    ALLOWED_HOSTS=["api.campushub.local"],
+    CSRF_TRUSTED_ORIGINS=["https://api.campushub.local"],
+    CHANNEL_LAYERS={
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": ["redis://localhost:6379/0"]},
+        }
+    },
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "prod-readiness-test",
+        }
+    },
+    FCM_ENABLED=False,
+    APNS_ENABLED=False,
     SESSION_COOKIE_SECURE=False,
     CSRF_COOKIE_SECURE=False,
     SECURE_SSL_REDIRECT=False,
@@ -272,3 +319,67 @@ def test_production_readiness_fails_for_console_email_backend():
         call_command("production_readiness_check", "--allow-sqlite", stdout=out)
     output = out.getvalue()
     assert "[FAIL] email_backend" in output
+
+
+@pytest.mark.django_db
+@override_settings(
+    ENVIRONMENT="production",
+    DEBUG=False,
+    SECRET_KEY=PROD_SECRET,
+    ALLOWED_HOSTS=["api.campushub.local"],
+    CSRF_TRUSTED_ORIGINS=["https://api.campushub.local"],
+    CHANNEL_LAYERS={
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": ["redis://localhost:6379/0"]},
+        }
+    },
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "prod-readiness-test",
+        }
+    },
+    FCM_ENABLED=False,
+    APNS_ENABLED=False,
+    **PROD_OVERRIDES,
+)
+def test_production_readiness_reports_configured_sms_backend():
+    out = StringIO()
+    call_command("production_readiness_check", "--allow-sqlite", stdout=out)
+    output = out.getvalue()
+    assert "[OK] sms_backend - africastalking configured" in output
+
+
+@pytest.mark.django_db
+@override_settings(
+    ENVIRONMENT="production",
+    DEBUG=False,
+    SECRET_KEY=PROD_SECRET,
+    ALLOWED_HOSTS=["api.campushub.local"],
+    CSRF_TRUSTED_ORIGINS=["https://api.campushub.local"],
+    CHANNEL_LAYERS={
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": ["redis://localhost:6379/0"]},
+        }
+    },
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "prod-readiness-test",
+        }
+    },
+    FCM_ENABLED=False,
+    APNS_ENABLED=False,
+    **{
+        **PROD_OVERRIDES,
+        "AFRICAS_TALKING_USERNAME": "",
+        "AFRICAS_TALKING_API_KEY": "",
+    },
+)
+def test_production_readiness_warns_when_sms_backend_is_incomplete():
+    out = StringIO()
+    call_command("production_readiness_check", "--allow-sqlite", stdout=out)
+    output = out.getvalue()
+    assert "[WARN] sms_backend - africastalking SMS provider is missing required settings:" in output

@@ -3,10 +3,12 @@ Tests for the CampusHub AI assistant endpoints.
 """
 
 import pytest
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
+from apps.payments.models import Plan, Subscription
 from apps.resources.models import Resource
 
 
@@ -19,10 +21,44 @@ def api_client():
 @pytest.fixture
 def chat_user(db):
     """Create an authenticated student for AI assistant tests."""
-    return User.objects.create_user(
+    user = User.objects.create_user(
         email="ai-student@example.com",
         password="SecurePass123!",
         full_name="AI Student",
+        role="STUDENT",
+    )
+    basic_plan = Plan.objects.create(
+        name="Basic",
+        tier="basic",
+        price_monthly="5.99",
+        price_yearly="59.99",
+        storage_limit_gb=10,
+        max_upload_size_mb=50,
+        download_limit_monthly=500,
+        has_ads=False,
+        has_analytics=True,
+        is_active=True,
+    )
+    Subscription.objects.create(
+        user=user,
+        plan=basic_plan,
+        status="trialing",
+        billing_period="monthly",
+        current_period_start=timezone.now(),
+        current_period_end=timezone.now() + timezone.timedelta(days=30),
+        trial_start=timezone.now(),
+        trial_end=timezone.now() + timezone.timedelta(days=30),
+        metadata={"trial": True},
+    )
+    return user
+
+
+@pytest.fixture
+def free_user(db):
+    return User.objects.create_user(
+        email="free-ai@example.com",
+        password="SecurePass123!",
+        full_name="Free AI User",
         role="STUDENT",
     )
 
@@ -43,6 +79,18 @@ def approved_resource(db, chat_user):
 @pytest.mark.django_db
 class TestAIChatbot:
     """Regression tests for the mini-ChatGPT assistant API."""
+
+    def test_chatbot_blocks_free_users(self, api_client, free_user):
+        api_client.force_authenticate(user=free_user)
+
+        response = api_client.post(
+            "/api/v1/ai/chat/",
+            {"message": "Help me study algorithms"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data["feature"] == "ai_chat"
 
     def test_chatbot_returns_platform_help(self, api_client, chat_user):
         api_client.force_authenticate(user=chat_user)

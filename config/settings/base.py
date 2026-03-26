@@ -371,14 +371,18 @@ GRAPHENE = {
 }
 
 # JWT Configuration
-# Keep users logged in until they explicitly logout
+# Standard sign-in sessions last a day unless "remember me" is enabled.
+JWT_SESSION_DAYS = int(config("JWT_SESSION_DAYS", default=1))
+JWT_REMEMBER_ME_DAYS = int(config("JWT_REMEMBER_ME_DAYS", default=30))
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=int(config("JWT_ACCESS_TOKEN_LIFETIME", default=60))
     ),
-    # Default refresh token lifetime (365 days) - user stays logged in for a year
+    # Default refresh token lifetime used outside the custom account helpers.
+    # The login flow explicitly stretches remembered sessions to 30 days.
     "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=int(config("JWT_REFRESH_TOKEN_LIFETIME", default=365))
+        days=int(config("JWT_REFRESH_TOKEN_LIFETIME", default=30))
     ),
     "ROTATE_REFRESH_TOKENS": True,  # Issue new refresh token on each use
     "BLACKLIST_AFTER_ROTATION": True,

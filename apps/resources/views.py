@@ -25,6 +25,7 @@ from apps.accounts.authentication import JWTAuthentication
 from apps.bookmarks.services import BookmarkService
 from apps.library.services import move_file_to_trash, save_public_resource_to_library
 from apps.moderation.services import ModerationService
+from apps.payments.freemium import Feature, can_access_feature
 
 from .filters import ResourceFilter
 from .models import (Folder, FolderItem, PersonalFolder, PersonalResource,
@@ -54,6 +55,21 @@ from .services import (ResourceDetailService, ResourceDownloadService,
                        ResourceRatingService, ResourceReportService,
                        ResourceShareService, ResourceUploadService,
                        CourseProgressService)
+
+
+def _progress_feature_denied(user):
+    has_access, reason = can_access_feature(user, Feature.ADVANCED_ANALYTICS)
+    if has_access:
+        return None
+    return Response(
+        {
+            "error": "Feature not available",
+            "reason": reason,
+            "feature": Feature.ADVANCED_ANALYTICS.value,
+            "upgrade_url": "/settings/billing/upgrade/",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 @extend_schema_view(
@@ -1704,6 +1720,9 @@ class CourseOverallProgressView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
+        denied_response = _progress_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         course_id = kwargs.get('course_id')
 
         try:
@@ -1730,6 +1749,9 @@ class CourseProgressSummaryListView(APIView):
         description="Returns aggregated progress summaries for all courses the user is enrolled in.",
     )
     def get(self, request):
+        denied_response = _progress_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         from apps.courses.models import Course
         from apps.activity.models import ActivityType, RecentActivity
         from apps.downloads.models import Download
@@ -1777,6 +1799,9 @@ class CourseProgressSummaryUpdateView(APIView):
         description="GET returns progress summary for a specific course. POST updates per-resource progress.",
     )
     def get(self, request, course_id):
+        denied_response = _progress_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         try:
             from apps.courses.models import Course
 
@@ -1790,6 +1815,9 @@ class CourseProgressSummaryUpdateView(APIView):
         return Response(CourseProgressService.build_course_summary(request.user, course))
 
     def post(self, request, course_id):
+        denied_response = _progress_feature_denied(request.user)
+        if denied_response:
+            return denied_response
         from django.utils import timezone
         from .models import CourseProgress
 
