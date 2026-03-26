@@ -2,15 +2,32 @@
 Admin configuration for accounts app.
 """
 
+from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.forms import UserChangeForm as BaseUserChangeForm
 
 from .models import User, UserActivity, UserDevice
+
+
+class UserChangeForm(BaseUserChangeForm):
+    """Custom UserChangeForm that handles the username field properly."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make username non-required since it's optional in the custom User model
+        if self.fields.get('username'):
+            self.fields['username'].required = False
+        # Also make date_joined non-required for consistency
+        if self.fields.get('date_joined'):
+            self.fields['date_joined'].required = False
 
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """Admin configuration for User model."""
+
+    form = UserChangeForm
 
     list_display = [
         "email",
