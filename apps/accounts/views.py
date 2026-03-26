@@ -8,6 +8,8 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, models
+from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status, viewsets
@@ -19,9 +21,10 @@ from rest_framework_simplejwt.token_blacklist.models import (BlacklistedToken,
                                                              OutstandingToken)
 from rest_framework_simplejwt.views import TokenRefreshView as SimpleJWTTokenRefreshView
 
-from apps.core.emails import EmailService
+from apps.core.emails import EmailService, UserEmailService
 
 from .authentication import generate_tokens_for_user
+from .constants import EMAIL_NOT_VERIFIED_CODE, EMAIL_NOT_VERIFIED_MESSAGE
 from .models import Profile, User, UserActivity, UserPreference
 from .permissions import IsAdminUser
 from .serializers import (LoginSerializer, PasswordChangeSerializer,
@@ -103,6 +106,18 @@ def _build_password_reset_link(request, token: str) -> str:
     return request.build_absolute_uri(f"/api/auth/password/reset/confirm/{token}/")
 
 
+def _build_frontend_magic_link_url(token: str) -> str:
+    """Build the web magic-link route when a frontend is configured."""
+    frontend_base = str(
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or ""
+    ).rstrip("/")
+    if not frontend_base:
+        return ""
+    return f"{frontend_base}/magic-link?{urlencode({'token': token})}"
+
+
 def _send_template_email_with_fallback(
     *,
     subject: str,
@@ -141,6 +156,68 @@ def _send_template_email_with_fallback(
                 "Fallback plain email send failed for subject '%s' to %s",
                 subject,
                 recipient_email,
+            )
+            return False
+
+
+def _build_verification_link(request, token: str) -> str:
+    """Build a verification link for web, API, or mobile deep-link flows."""
+    return _build_frontend_or_api_link(
+        request,
+        frontend_path=f"/verify-email/{token}",
+        api_path=f"/api/auth/verify-email/{token}/",
+    )
+
+
+def _send_account_verification_email(request, user, *, welcome: bool) -> bool:
+    """Send either a welcome+verification email or a dedicated verification email."""
+    token = generate_signed_verification_token(user)
+    verify_url = _build_verification_link(request, token)
+    site_name = getattr(settings, "SITE_NAME", "CampusHub")
+    subject = (
+        f"Welcome to {site_name}! Please verify your email"
+        if welcome
+        else f"Verify your {site_name} account"
+    )
+    fallback_message = (
+        "Welcome to CampusHub.\n\n"
+        f"Verify your email using this link:\n{verify_url}"
+        if welcome
+        else f"Verify your email using this link:\n{verify_url}"
+    )
+    email_sender = (
+        UserEmailService.send_welcome_email
+        if welcome
+        else UserEmailService.send_email_verification_email
+    )
+    email_kind = "welcome" if welcome else "verification"
+
+    try:
+        return bool(
+            email_sender(
+                user,
+                verification_url=verify_url,
+                raise_on_error=True,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "Failed to send %s email for %s",
+            email_kind,
+            user.email,
+        )
+        try:
+            return EmailService.send_email(
+                subject=subject,
+                message=fallback_message,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception:
+            logger.exception(
+                "Fallback %s email send failed for %s",
+                email_kind,
+                user.email,
             )
             return False
 
@@ -268,31 +345,9 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        # Generate tokens
-        tokens = generate_tokens_for_user(user)
-
         # Auto-send welcome + verification email.
         try:
-            token = generate_signed_verification_token(user)
-            verify_url = _build_frontend_or_api_link(
-                request,
-                frontend_path=f"/verify-email/{token}",
-                api_path=f"/api/auth/verify-email/{token}/",
-            )
-            _send_template_email_with_fallback(
-                subject=f"Welcome to {getattr(settings, 'SITE_NAME', 'CampusHub')}!",
-                template_name="welcome",
-                context={
-                    "user": user,
-                    "verification_url": verify_url,
-                    "site_name": getattr(settings, "SITE_NAME", "CampusHub"),
-                },
-                fallback_message=(
-                    "Welcome to CampusHub.\n\n"
-                    f"Verify your email using this link:\n{verify_url}"
-                ),
-                recipient_email=user.email,
-            )
+            _send_account_verification_email(request, user, welcome=True)
         except Exception:
             logger.exception("Failed to queue registration email for %s", user.email)
 
@@ -302,10 +357,11 @@ class RegisterView(generics.CreateAPIView):
         return Response(
             {
                 "user": UserSerializer(user).data,
-                "access": tokens["access"],
-                "refresh": tokens["refresh"],
-                "tokens": tokens,
-                "message": "Registration successful.",
+                "access": None,
+                "refresh": None,
+                "tokens": None,
+                "requires_email_verification": True,
+                "message": "Registration successful. Please verify your email before logging in.",
             },
             status=status.HTTP_201_CREATED,
         )
@@ -349,6 +405,17 @@ class LoginView(APIView):
                 cache.set(attempts_key, current_attempts + 1, timeout=15 * 60)
             raise
         user = serializer.validated_data["user"]
+        
+        # Check if user is verified before allowing login
+        if not user.is_verified:
+            return Response(
+                {
+                    "detail": EMAIL_NOT_VERIFIED_MESSAGE,
+                    "code": EMAIL_NOT_VERIFIED_CODE,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        
         if login_identifier:
             cache.delete(attempts_key)
 
@@ -789,26 +856,7 @@ class ResendVerificationEmailView(APIView):
         user = User.objects.filter(email=email, is_active=True).first()
         if user and not user.is_verified:
             try:
-                token = generate_signed_verification_token(user)
-                verify_url = _build_frontend_or_api_link(
-                    request,
-                    frontend_path=f"/verify-email/{token}",
-                    api_path=f"/api/auth/verify-email/{token}/",
-                )
-                _send_template_email_with_fallback(
-                    subject=f"Verify your {getattr(settings, 'SITE_NAME', 'CampusHub')} account",
-                    template_name="welcome",
-                    context={
-                        "user": user,
-                        "verification_url": verify_url,
-                        "site_name": getattr(settings, "SITE_NAME", "CampusHub"),
-                    },
-                    fallback_message=(
-                        "Verify your email using this link:\n"
-                        f"{verify_url}"
-                    ),
-                    recipient_email=user.email,
-                )
+                _send_account_verification_email(request, user, welcome=False)
             except Exception:
                 logger.exception(
                     "Failed to resend verification email for %s", user.email
@@ -1088,6 +1136,7 @@ class MagicLinkRequestView(APIView):
         result = PasswordlessAuthService.request_magic_link(
             email=email,
             ip_address=get_client_ip(request),
+            request_base_url=request.build_absolute_uri("/"),
         )
         if not result["success"]:
             response_status = (
@@ -1105,6 +1154,29 @@ class MagicLinkConsumeView(APIView):
 
     permission_classes = [AllowAny]
 
+    def get(self, request):
+        token = str(request.query_params.get("token") or "").strip()
+        app_magic_link_url = (
+            _build_mobile_deeplink("magic-link", {"token": token})
+            if token
+            else ""
+        )
+        web_magic_link_url = _build_frontend_magic_link_url(token) if token else ""
+        status_code = status.HTTP_200_OK if token else status.HTTP_400_BAD_REQUEST
+        return render(
+            request,
+            "accounts/magic_login.html",
+            {
+                "token": token,
+                "site_name": getattr(settings, "SITE_NAME", "CampusHub"),
+                "consume_api_url": reverse("accounts:magic-link-consume"),
+                "app_magic_link_url": app_magic_link_url,
+                "web_magic_link_url": web_magic_link_url,
+                "missing_token": not token,
+            },
+            status=status_code,
+        )
+
     @extend_schema(summary="Consume magic link", description="Exchange magic link token for JWTs")
     def post(self, request):
         token = str(request.data.get("token") or request.query_params.get("token") or "").strip()
@@ -1119,7 +1191,18 @@ class MagicLinkConsumeView(APIView):
             user_agent=get_user_agent(request),
         )
         if not result["success"]:
-            return Response({"detail": result["message"]}, status=status.HTTP_400_BAD_REQUEST)
+            response_status = (
+                status.HTTP_403_FORBIDDEN
+                if result.get("code") == EMAIL_NOT_VERIFIED_CODE
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(
+                {
+                    "detail": result["message"],
+                    "code": result.get("code"),
+                },
+                status=response_status,
+            )
 
         user = User.objects.get(id=result["user_id"], is_active=True)
         user.update_last_login()
@@ -1272,9 +1355,17 @@ class PasskeyAuthenticationCompleteView(APIView):
         result = PasswordlessAuthService.verify_passkey_authentication(credential_data)
 
         if not result["success"]:
+            response_status = (
+                status.HTTP_403_FORBIDDEN
+                if result.get("code") == EMAIL_NOT_VERIFIED_CODE
+                else status.HTTP_400_BAD_REQUEST
+            )
             return Response(
-                {"detail": result["message"]},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "detail": result["message"],
+                    "code": result.get("code"),
+                },
+                status=response_status,
             )
 
         return Response(

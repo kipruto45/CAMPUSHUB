@@ -11,6 +11,8 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.utils import timezone
 
+from .constants import EMAIL_NOT_VERIFIED_CODE, EMAIL_NOT_VERIFIED_MESSAGE
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class PasskeyAuthenticationResult:
     """Result of a passkey authentication operation."""
     success: bool
     message: str
+    code: Optional[str] = None
     user_id: Optional[int] = None
     passkey_id: Optional[int] = None
     options: Optional[dict] = None
@@ -434,6 +437,12 @@ class PasskeyService:
                 return PasskeyAuthenticationResult(
                     success=False,
                     message="User account is disabled.",
+                )
+            if not passkey.user.is_verified:
+                return PasskeyAuthenticationResult(
+                    success=False,
+                    message=EMAIL_NOT_VERIFIED_MESSAGE,
+                    code=EMAIL_NOT_VERIFIED_CODE,
                 )
             
             # If expected user ID provided, verify it matches

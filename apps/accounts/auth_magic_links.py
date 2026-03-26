@@ -22,11 +22,11 @@ from django.core import signing
 from django.core.cache import cache
 from django.core.signing import BadSignature, SignatureExpired
 from django.db import transaction
-from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import strip_tags
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .constants import EMAIL_NOT_VERIFIED_CODE, EMAIL_NOT_VERIFIED_MESSAGE
 from apps.core.emails import EmailService
 
 User = get_user_model()
@@ -47,6 +47,7 @@ class MagicLinkResult:
 
     success: bool
     message: str
+    code: Optional[str] = None
     token: Optional[str] = None
     access: Optional[str] = None
     refresh: Optional[str] = None
@@ -167,14 +168,22 @@ class MagicLinkService:
             window_minutes=MAGIC_LINK_RATE_WINDOW_MINUTES,
         )
 
-    def _build_magic_link_url(self, token: str) -> str:
+    def _build_magic_link_url(
+        self,
+        token: str,
+        request_base_url: Optional[str] = None,
+    ) -> str:
+        query = urlencode({"token": token})
+        if request_base_url:
+            consume_path = reverse("accounts:magic-link-consume")
+            return f"{str(request_base_url).rstrip('/')}{consume_path}?{query}"
+
         frontend_base = (
             str(getattr(settings, "FRONTEND_URL", "") or "").strip()
             or str(getattr(settings, "FRONTEND_BASE_URL", "") or "").strip()
             or str(getattr(settings, "WEB_APP_URL", "") or "").strip()
         ).rstrip("/")
 
-        query = urlencode({"token": token})
         if frontend_base:
             return f"{frontend_base}/magic-link?{query}"
 
@@ -192,18 +201,23 @@ class MagicLinkService:
         magic_link: str,
         expires_at: datetime,
     ) -> None:
-        context = {
-            "user": user,
-            "magic_link": magic_link,
-            "expires_at": expires_at,
-            "expires_minutes": MAGIC_LINK_TTL_MINUTES,
-        }
-        html_content = render_to_string("emails/magic_login.html", context)
-        plain_text = strip_tags(html_content)
+        first_name = str(getattr(user, "first_name", "") or "").strip()
+        greeting_name = first_name or user.email
+        expiry_minutes = max(
+            1,
+            int((expires_at - timezone.now()).total_seconds() // 60) or MAGIC_LINK_TTL_MINUTES,
+        )
+        plain_text = (
+            f"Hi {greeting_name},\n\n"
+            "Use the secure link below to sign in to CampusHub:\n"
+            f"{magic_link}\n\n"
+            f"This link works for about {expiry_minutes} minutes and can only be used once.\n\n"
+            "The link opens a CampusHub sign-in screen where you can continue on web, open the app, or copy the token if needed.\n\n"
+            "If you did not request this email, you can safely ignore it."
+        )
         EmailService.send_email(
             subject="Your CampusHub Magic Link",
             message=plain_text,
-            html_message=html_content,
             recipient_list=[user.email],
         )
 
@@ -211,6 +225,7 @@ class MagicLinkService:
         self,
         email: str,
         ip_address: Optional[str] = None,
+        request_base_url: Optional[str] = None,
     ) -> MagicLinkResult:
         email = str(email or "").lower().strip()
         if not email:
@@ -238,7 +253,10 @@ class MagicLinkService:
 
         try:
             token, expires_at = self.token_handler.generate(user.id)
-            magic_link = self._build_magic_link_url(token)
+            magic_link = self._build_magic_link_url(
+                token,
+                request_base_url=request_base_url,
+            )
             self._send_magic_link_email(user, magic_link, expires_at)
         except Exception as exc:
             logger.error("Error sending magic link for %s: %s", email, exc)
@@ -288,6 +306,13 @@ class MagicLinkService:
         user = User.objects.filter(id=payload.get("user_id"), is_active=True).first()
         if not user:
             return MagicLinkResult(success=False, message="User not found.")
+        if not user.is_verified:
+            return MagicLinkResult(
+                success=False,
+                message=EMAIL_NOT_VERIFIED_MESSAGE,
+                code=EMAIL_NOT_VERIFIED_CODE,
+                user_id=user.id,
+            )
 
         try:
             with transaction.atomic():

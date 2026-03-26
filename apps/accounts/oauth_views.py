@@ -14,12 +14,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.emails import EmailService
+from apps.core.emails import EmailService, get_frontend_base_url
 
 from .serializers import UserSerializer
 from .social_auth import (SocialAuthService, get_google_provider_config,
                           get_microsoft_provider_config)
-from .verification import generate_signed_verification_token
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -85,7 +84,11 @@ def _build_mobile_callback_url(provider: str, params: dict) -> str:
 
 def _build_frontend_or_api_link(request, frontend_path: str, api_path: str) -> str:
     """Build frontend URL when configured; otherwise fall back to API URL or mobile deep link."""
-    frontend_base = str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    frontend_base = str(
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or ""
+    ).rstrip("/")
     if frontend_base:
         return f"{frontend_base}/{frontend_path.lstrip('/')}"
     
@@ -121,45 +124,19 @@ def _send_social_welcome_email(request, user, provider: str) -> None:
     Send welcome email for first-time social users.
     This is best-effort and does not block authentication.
     """
-    verify_url = ""
     site_name = getattr(settings, "SITE_NAME", "CampusHub")
-    try:
-        token = generate_signed_verification_token(user)
-        verify_url = _build_frontend_or_api_link(
-            request,
-            frontend_path=f"/verify-email/{token}",
-            api_path=f"/api/auth/verify-email/{token}/",
-        )
-        sent = EmailService.send_template_email(
-            template_name="welcome",
-            context={
-                "user": user,
-                "verification_url": verify_url,
-                "site_name": site_name,
-            },
-            subject=f"Welcome to {site_name}!",
-            recipient_list=[user.email],
-            raise_on_error=True,
-        )
-        if sent:
-            return
-    except Exception:
-        logger.exception(
-            "Failed to send %s social welcome template email to %s",
-            provider,
-            getattr(user, "email", ""),
-        )
-
+    frontend_url = get_frontend_base_url()
     try:
         EmailService.send_email(
             subject=f"Welcome to {site_name}!",
             message=(
                 f"Welcome to {site_name}! Your account was created using {provider}.\n\n"
                 + (
-                    f"Verify your email using this link:\n{verify_url}"
-                    if verify_url
-                    else "You can now sign in and start using CampusHub."
+                    f"Start exploring here: {frontend_url}\n\n"
+                    if frontend_url
+                    else ""
                 )
+                + "You can now sign in and start using CampusHub."
             ),
             recipient_list=[user.email],
             fail_silently=False,

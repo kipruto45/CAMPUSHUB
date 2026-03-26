@@ -12,6 +12,10 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.accounts.tokens import generate_magic_link_token
+from apps.accounts.constants import (
+    EMAIL_NOT_VERIFIED_CODE,
+    EMAIL_NOT_VERIFIED_MESSAGE,
+)
 from apps.core.encryption import EncryptionService
 from apps.two_factor.models import TwoFactorSetting
 from apps.accounts.verification import (
@@ -38,6 +42,89 @@ def test_user(db):
 
 
 @pytest.mark.django_db
+class TestRegistrationAndVerification:
+    def test_registration_requires_email_verification(
+        self, api_client, settings, mailoutbox
+    ):
+        url = reverse("accounts:register")
+        response = api_client.post(
+            url,
+            {
+                "email": "new-user@example.com",
+                "password": "SecurePass123!",
+                "password_confirm": "SecurePass123!",
+                "full_name": "New User",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data["requires_email_verification"] is True
+        assert response.data["access"] is None
+        assert response.data["refresh"] is None
+        assert len(mailoutbox) == 1
+        assert "Please verify your email" in mailoutbox[0].subject
+
+    def test_login_blocks_unverified_user(self, api_client, test_user):
+        url = reverse("accounts:login")
+        response = api_client.post(
+            url,
+            {"email": test_user.email, "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
+        assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
+
+    def test_resend_verification_uses_verification_email_template(
+        self, api_client, test_user, mailoutbox
+    ):
+        url = reverse("accounts:resend_verify_email")
+        response = api_client.post(
+            url,
+            {"email": test_user.email},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].subject == "Verify Your Email Address"
+        assert "Verify Your Email Address" in mailoutbox[0].alternatives[0][0]
+
+    def test_mobile_login_blocks_unverified_user(self, api_client, test_user):
+        response = api_client.post(
+            "/api/mobile/login/",
+            {"email": test_user.email, "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
+        assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
+
+    def test_passkey_auth_blocks_unverified_user(self, api_client, monkeypatch):
+        monkeypatch.setattr(
+            "apps.accounts.views.PasswordlessAuthService.verify_passkey_authentication",
+            lambda credential_data: {
+                "success": False,
+                "message": EMAIL_NOT_VERIFIED_MESSAGE,
+                "code": EMAIL_NOT_VERIFIED_CODE,
+            },
+        )
+
+        response = api_client.post(
+            reverse("accounts:passkey-auth-complete"),
+            {"credential": {"credentialId": "test-passkey"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
+        assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
+
+
+@pytest.mark.django_db
 class TestPasswordResetRequest:
     """Tests for the password reset request endpoint."""
 
@@ -45,7 +132,7 @@ class TestPasswordResetRequest:
         self, api_client, test_user, settings, mailoutbox
     ):
         """Test that password reset request succeeds with valid email."""
-        url = reverse("password_reset_request")
+        url = reverse("accounts:password_reset_request")
         response = api_client.post(
             url, {"email": "test@example.com"}, format="json"
         )
@@ -59,7 +146,7 @@ class TestPasswordResetRequest:
         self, api_client, db, settings, mailoutbox
     ):
         """Test that password reset request works even for non-existent email (security)."""
-        url = reverse("password_reset_request")
+        url = reverse("accounts:password_reset_request")
         response = api_client.post(
             url, {"email": "nonexistent@example.com"}, format="json"
         )
@@ -69,7 +156,7 @@ class TestPasswordResetRequest:
 
     def test_password_reset_request_invalid_email_format(self, api_client, db):
         """Test that password reset request rejects invalid email format."""
-        url = reverse("password_reset_request")
+        url = reverse("accounts:password_reset_request")
         response = api_client.post(
             url, {"email": "invalid-email"}, format="json"
         )
@@ -78,7 +165,7 @@ class TestPasswordResetRequest:
 
     def test_password_reset_request_empty_email(self, api_client, db):
         """Test that password reset request rejects empty email."""
-        url = reverse("password_reset_request")
+        url = reverse("accounts:password_reset_request")
         response = api_client.post(url, {"email": ""}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -92,7 +179,7 @@ class TestPasswordResetConfirm:
         """Test that password reset confirmation succeeds with valid token."""
         token = generate_signed_password_reset_token(test_user)
         url = reverse(
-            "password_reset_confirm_token", kwargs={"token": token}
+            "accounts:password_reset_confirm_token", kwargs={"token": token}
         )
         response = api_client.post(
             url,
@@ -116,7 +203,7 @@ class TestPasswordResetConfirm:
         """Test that password reset confirmation rejects mismatched passwords."""
         token = generate_signed_password_reset_token(test_user)
         url = reverse(
-            "password_reset_confirm_token", kwargs={"token": token}
+            "accounts:password_reset_confirm_token", kwargs={"token": token}
         )
         response = api_client.post(
             url,
@@ -132,7 +219,7 @@ class TestPasswordResetConfirm:
     def test_password_reset_confirm_invalid_token(self, api_client, db):
         """Test that password reset confirmation rejects invalid token."""
         url = reverse(
-            "password_reset_confirm_token",
+            "accounts:password_reset_confirm_token",
             kwargs={"token": "invalid-token-12345"},
         )
         response = api_client.post(
@@ -150,7 +237,7 @@ class TestPasswordResetConfirm:
         """Test that password reset confirmation rejects weak passwords."""
         token = generate_signed_password_reset_token(test_user)
         url = reverse(
-            "password_reset_confirm_token", kwargs={"token": token}
+            "accounts:password_reset_confirm_token", kwargs={"token": token}
         )
         response = api_client.post(
             url,
@@ -197,12 +284,26 @@ class TestMobilePasswordReset:
 
 @pytest.mark.django_db
 class TestMagicLink:
-    def test_magic_link_request_returns_200(self, api_client, test_user):
+    def test_magic_link_request_returns_200(self, api_client, test_user, mailoutbox):
         url = reverse("accounts:magic-link-request")
         resp = api_client.post(url, {"email": test_user.email})
         assert resp.status_code == status.HTTP_200_OK
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].subject == "Your CampusHub Magic Link"
+        assert "/api/auth/magic-link/consume/?token=" in mailoutbox[0].body
+
+    def test_magic_link_consume_screen_renders(self, api_client):
+        url = reverse("accounts:magic-link-consume")
+        resp = api_client.get(url, {"token": "screen-token"})
+
+        assert resp.status_code == status.HTTP_200_OK
+        content = resp.content.decode()
+        assert "One-tap sign in" in content
+        assert "screen-token" in content
 
     def test_magic_link_consume_returns_tokens(self, api_client, test_user):
+        test_user.is_verified = True
+        test_user.save(update_fields=["is_verified", "updated_at"])
         token = generate_magic_link_token(test_user.id, ttl_minutes=5)
         url = reverse("accounts:magic-link-consume")
         resp = api_client.post(url, {"token": token})
@@ -210,6 +311,8 @@ class TestMagicLink:
         assert "access" in resp.data and "refresh" in resp.data
 
     def test_magic_link_can_only_be_used_once(self, api_client, test_user):
+        test_user.is_verified = True
+        test_user.save(update_fields=["is_verified", "updated_at"])
         token = generate_magic_link_token(test_user.id, ttl_minutes=5)
         url = reverse("accounts:magic-link-consume")
 
@@ -219,6 +322,15 @@ class TestMagicLink:
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "already been used" in second.data["detail"].lower()
+
+    def test_magic_link_consume_blocks_unverified_user(self, api_client, test_user):
+        token = generate_magic_link_token(test_user.id, ttl_minutes=5)
+        url = reverse("accounts:magic-link-consume")
+        resp = api_client.post(url, {"token": token})
+
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert resp.data["code"] == EMAIL_NOT_VERIFIED_CODE
+        assert resp.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
 
     def test_magic_link_request_is_rate_limited(self, api_client, test_user):
         cache.clear()

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One-tap sign in</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(160deg, #f2fbf6 0%, #ffffff 100%);
+            color: #153329;
+        }
+        .shell {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .card {
+            width: min(100%, 560px);
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 20px 45px rgba(15, 157, 88, 0.12);
+            overflow: hidden;
+            border: 1px solid #d8efe0;
+        }
+        .hero {
+            padding: 32px 32px 24px;
+            background: linear-gradient(135deg, #0f9d58 0%, #34a853 100%);
+            color: #ffffff;
+        }
+        .hero h1 {
+            margin: 0 0 10px;
+            font-size: 30px;
+            line-height: 1.15;
+        }
+        .hero p {
+            margin: 0;
+            opacity: 0.95;
+            font-size: 15px;
+        }
+        .content {
+            padding: 28px 32px 32px;
+        }
+        .copy {
+            margin: 0 0 18px;
+            font-size: 15px;
+            color: #355448;
+            line-height: 1.6;
+        }
+        .warning {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: #fff6e5;
+            color: #825a0a;
+            margin-bottom: 18px;
+            border: 1px solid #f7ddb0;
+        }
+        .actions {
+            display: grid;
+            gap: 12px;
+            margin: 22px 0;
+        }
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 48px;
+            padding: 0 18px;
+            border-radius: 14px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .button:hover {
+            transform: translateY(-1px);
+        }
+        .button-primary {
+            background: #0d7377;
+            color: #ffffff;
+            box-shadow: 0 10px 18px rgba(13, 115, 119, 0.18);
+        }
+        .button-secondary {
+            background: #edf8f0;
+            color: #0f7a43;
+            border: 1px solid #cfe9d7;
+        }
+        .button-ghost {
+            background: #ffffff;
+            color: #355448;
+            border: 1px dashed #b8d4c0;
+            cursor: pointer;
+        }
+        .token-box {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: #f7fbf8;
+            border: 1px solid #d8efe0;
+            word-break: break-all;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
+            color: #355448;
+        }
+        .helper {
+            margin-top: 18px;
+            font-size: 13px;
+            color: #60786d;
+            line-height: 1.6;
+        }
+        .helper code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: #f1f6f2;
+            padding: 1px 5px;
+            border-radius: 6px;
+        }
+        .feedback {
+            margin-top: 12px;
+            font-size: 13px;
+            color: #0f7a43;
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="card">
+            <div class="hero">
+                <h1>One-tap sign in</h1>
+                <p>Continue your secure {{ site_name }} login from web or the mobile app.</p>
+            </div>
+            <div class="content">
+                {% if missing_token %}
+                <div class="warning">
+                    This magic link is incomplete. Request a new sign-in email and try again.
+                </div>
+                <p class="copy">
+                    We couldn't find a token in this link, so there isn't anything to verify yet.
+                </p>
+                {% else %}
+                <p class="copy">
+                    Your secure sign-in link is ready. Choose the option that fits your device.
+                </p>
+
+                <div class="actions">
+                    {% if app_magic_link_url %}
+                    <a class="button button-primary" href="{{ app_magic_link_url }}">Open in CampusHub app</a>
+                    {% endif %}
+
+                    {% if web_magic_link_url %}
+                    <a class="button button-secondary" href="{{ web_magic_link_url }}">Continue on web</a>
+                    {% endif %}
+
+                    <button class="button button-ghost" type="button" id="copy-token">Copy token</button>
+                </div>
+
+                <div class="token-box" id="token-box">{{ token }}</div>
+                <div class="feedback" id="copy-feedback" aria-live="polite"></div>
+
+                <p class="helper">
+                    If the app does not open automatically, copy the token above and paste it into the
+                    <code>magic-link</code> sign-in screen. The direct consume endpoint behind this screen is
+                    <code>{{ consume_api_url }}</code>.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if not missing_token %}
+    {{ token|json_script:"magic-link-token" }}
+    <script>
+        (function () {
+            var copyButton = document.getElementById('copy-token');
+            var feedback = document.getElementById('copy-feedback');
+            var tokenElement = document.getElementById('magic-link-token');
+            if (!copyButton || !feedback || !tokenElement) {
+                return;
+            }
+
+            var token = '';
+            try {
+                token = JSON.parse(tokenElement.textContent || '""');
+            } catch (error) {
+                token = '';
+            }
+
+            copyButton.addEventListener('click', function () {
+                if (!token || !navigator.clipboard) {
+                    feedback.textContent = 'Copy is not available on this device.';
+                    return;
+                }
+
+                navigator.clipboard.writeText(token).then(function () {
+                    feedback.textContent = 'Token copied.';
+                }).catch(function () {
+                    feedback.textContent = 'Could not copy token automatically.';
+                });
+            });
+        })();
+    </script>
+    {% endif %}
+</body>
+</html>

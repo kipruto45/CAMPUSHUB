@@ -454,7 +454,11 @@ class PasswordlessAuthService:
     """
 
     @staticmethod
-    def request_magic_link(email: str, ip_address: str = None) -> dict:
+    def request_magic_link(
+        email: str,
+        ip_address: str = None,
+        request_base_url: str = None,
+    ) -> dict:
         """
         Request a magic link for a user.
 
@@ -467,7 +471,11 @@ class PasswordlessAuthService:
         """
         from .auth_magic_links import magic_link_service
 
-        result = magic_link_service.request_magic_link(email, ip_address)
+        result = magic_link_service.request_magic_link(
+            email,
+            ip_address,
+            request_base_url=request_base_url,
+        )
         return {
             "success": result.success,
             "message": result.message,
@@ -499,6 +507,7 @@ class PasswordlessAuthService:
             return {
                 "success": True,
                 "message": result.message,
+                "code": result.code,
                 "access": result.access,
                 "refresh": result.refresh,
                 "user_id": result.user_id,
@@ -506,6 +515,7 @@ class PasswordlessAuthService:
         return {
             "success": False,
             "message": result.message,
+            "code": result.code,
         }
 
     @staticmethod
@@ -622,6 +632,7 @@ class PasswordlessAuthService:
             return {
                 "success": True,
                 "message": result.message,
+                "code": result.code,
                 "user_id": result.user_id,
                 "passkey_id": result.passkey_id,
                 "access": str(refresh.access_token),
@@ -630,6 +641,7 @@ class PasswordlessAuthService:
         return {
             "success": False,
             "message": result.message,
+            "code": result.code,
         }
 
     @staticmethod

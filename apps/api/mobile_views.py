@@ -35,6 +35,7 @@ from apps.accounts.authentication import (
     JWTAuthentication,
     generate_tokens_for_user,
 )
+from apps.accounts.constants import EMAIL_NOT_VERIFIED_CODE, EMAIL_NOT_VERIFIED_MESSAGE
 from apps.accounts.serializers import (
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
@@ -60,7 +61,7 @@ from apps.core.idempotency import (
     cache_idempotent_response,
     get_cached_idempotent_response,
 )
-from apps.core.emails import EmailService
+from apps.core.emails import EmailService, UserEmailService
 from apps.courses.models import Course, Unit
 from apps.downloads.services import DownloadService
 from apps.core.storage.utils import build_storage_download_path
@@ -265,7 +266,8 @@ def mobile_register(request):
             data={
                 "user_id": user.id,
                 "email": user.email,
-                "message": "Registration successful",
+                "message": "Registration successful. Please verify your email before logging in.",
+                "requires_email_verification": True,
             },
             message="Account created successfully",
         )
@@ -433,6 +435,13 @@ def mobile_login(request):
         )
 
     user = serializer.validated_data["user"]
+    if not user.is_verified:
+        return MobileResponse.error(
+            message=EMAIL_NOT_VERIFIED_MESSAGE,
+            code=EMAIL_NOT_VERIFIED_CODE,
+            status_code=status.HTTP_403_FORBIDDEN,
+            request=request,
+        )
 
     remember_me = _parse_boolean_flag(payload.get("remember_me", False))
     tokens = generate_tokens_for_user(user, remember_me=remember_me)
@@ -712,10 +721,7 @@ def mobile_verify_email(request, token):
 @throttle_classes([MobileAuthenticateThrottle])
 def mobile_resend_verification_email(request):
     """Mobile-friendly resend verification endpoint."""
-    from apps.accounts.views import (
-        _build_frontend_or_api_link,
-        _send_template_email_with_fallback,
-    )
+    from apps.accounts.views import _send_account_verification_email
 
     email = (request.data.get("email") or "").strip().lower()
     if not email:
@@ -728,26 +734,7 @@ def mobile_resend_verification_email(request):
     user = User.objects.filter(email=email, is_active=True).first()
     if user and not user.is_verified:
         try:
-            token = generate_signed_verification_token(user)
-            verify_url = _build_frontend_or_api_link(
-                request,
-                frontend_path=f"/verify-email/{token}",
-                api_path=f"/api/auth/verify-email/{token}/",
-            )
-            _send_template_email_with_fallback(
-                subject=f"Verify your {getattr(settings, 'SITE_NAME', 'CampusHub')} account",
-                template_name="welcome",
-                context={
-                    "user": user,
-                    "verification_url": verify_url,
-                    "site_name": getattr(settings, "SITE_NAME", "CampusHub"),
-                },
-                fallback_message=(
-                    "Verify your email using this link:\n"
-                    f"{verify_url}"
-                ),
-                recipient_email=user.email,
-            )
+            _send_account_verification_email(request, user, welcome=False)
         except Exception:
             logger.exception(
                 "Failed to resend mobile verification email for %s", user.email
@@ -1967,7 +1954,11 @@ def _remove_device_token(user, token):
 
 def _build_frontend_or_api_link(request, frontend_path: str, api_path: str) -> str:
     """Build frontend URL when configured; otherwise fall back to API URL or mobile deep link."""
-    frontend_base = str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    frontend_base = str(
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or ""
+    ).rstrip("/")
     if frontend_base:
         return f"{frontend_base}/{frontend_path.lstrip('/')}"
     
@@ -1986,6 +1977,7 @@ def _build_frontend_or_api_link(request, frontend_path: str, api_path: str) -> s
 def _send_mobile_registration_email(request, user) -> None:
     """Send welcome and verification email for mobile registration."""
     verify_url = ""
+    site_name = getattr(settings, "SITE_NAME", "CampusHub")
     try:
         token = generate_signed_verification_token(user)
         verify_url = _build_frontend_or_api_link(
@@ -1993,15 +1985,9 @@ def _send_mobile_registration_email(request, user) -> None:
             frontend_path=f"/verify-email/{token}",
             api_path=f"/api/auth/verify-email/{token}/",
         )
-        sent = EmailService.send_template_email(
-            template_name="welcome",
-            context={
-                "user": user,
-                "verification_url": verify_url,
-                "site_name": getattr(settings, "SITE_NAME", "CampusHub"),
-            },
-            subject=f"Welcome to {getattr(settings, 'SITE_NAME', 'CampusHub')}!",
-            recipient_list=[user.email],
+        sent = UserEmailService.send_welcome_email(
+            user,
+            verification_url=verify_url,
             raise_on_error=True,
         )
         if sent:
@@ -2014,7 +2000,7 @@ def _send_mobile_registration_email(request, user) -> None:
 
     try:
         EmailService.send_email(
-            subject=f"Welcome to {getattr(settings, 'SITE_NAME', 'CampusHub')}!",
+            subject=f"Welcome to {site_name}! Please verify your email",
             message=(
                 "Welcome to CampusHub.\n\n"
                 + (

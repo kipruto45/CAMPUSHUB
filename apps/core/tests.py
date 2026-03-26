@@ -8,7 +8,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.db import models
+from django.db import connection, models
 from django.utils import timezone
 
 from apps.core.models import (
@@ -19,12 +19,13 @@ from apps.core.models import (
     EmailCampaign,
     APIUsageLog,
 )
+from apps.core.sms import AfricasTalkingSMSProvider, SMSService
 
 User = get_user_model()
 
 
 # Concrete test models for abstract base classes
-class TestTimeStampedModel(TimeStampedModel):
+class TimeStampedTestModel(TimeStampedModel):
     """Concrete implementation for testing TimeStampedModel."""
     name = models.CharField(max_length=100)
     
@@ -32,7 +33,7 @@ class TestTimeStampedModel(TimeStampedModel):
         app_label = 'core'
 
 
-class TestSlugifiedModel(SlugifiedModel):
+class SlugifiedTestModel(SlugifiedModel):
     """Concrete implementation for testing SlugifiedModel."""
     title = models.CharField(max_length=100)
     
@@ -40,16 +41,36 @@ class TestSlugifiedModel(SlugifiedModel):
         app_label = 'core'
 
 
-class TestSoftDeleteModel(SoftDeleteModel):
+class SoftDeleteTestModel(SoftDeleteModel):
     """Concrete implementation for testing SoftDeleteModel."""
     name = models.CharField(max_length=100)
     
     class Meta:
         app_label = 'core'
 
+@pytest.fixture(scope="module", autouse=True)
+def abstract_model_tables(django_db_setup, django_db_blocker):
+    """Create database tables for local concrete test models."""
+    models_to_manage = (
+        TimeStampedTestModel,
+        SlugifiedTestModel,
+        SoftDeleteTestModel,
+    )
 
+    with django_db_blocker.unblock():
+        existing_tables = set(connection.introspection.table_names())
+        with connection.schema_editor() as schema_editor:
+            for model_class in models_to_manage:
+                if model_class._meta.db_table not in existing_tables:
+                    schema_editor.create_model(model_class)
 
-from django.db import models
+        try:
+            yield
+        finally:
+            with connection.schema_editor() as schema_editor:
+                for model_class in reversed(models_to_manage):
+                    if model_class._meta.db_table in connection.introspection.table_names():
+                        schema_editor.delete_model(model_class)
 
 
 @pytest.fixture
@@ -82,7 +103,7 @@ class TestTimeStampedModel:
 
     def test_creates_timestamps(self):
         """Test that created_at and updated_at are automatically set."""
-        obj = TestTimeStampedModel.objects.create(name='Test')
+        obj = TimeStampedTestModel.objects.create(name='Test')
         
         assert obj.id is not None
         assert obj.created_at is not None
@@ -91,7 +112,7 @@ class TestTimeStampedModel:
 
     def test_updated_at_changes(self):
         """Test that updated_at changes on save."""
-        obj = TestTimeStampedModel.objects.create(name='Test')
+        obj = TimeStampedTestModel.objects.create(name='Test')
         original_updated = obj.updated_at
         
         # Wait a tiny bit and save
@@ -111,21 +132,21 @@ class TestSlugifiedModel:
 
     def test_auto_slug_generation(self):
         """Test that slug is automatically generated from title."""
-        obj = TestSlugifiedModel.objects.create(title='Hello World')
+        obj = SlugifiedTestModel.objects.create(title='Hello World')
         
         assert obj.slug == 'hello-world'
 
     def test_unique_slug(self):
         """Test that slugs are unique."""
-        obj1 = TestSlugifiedModel.objects.create(title='Test Title')
-        obj2 = TestSlugifiedModel.objects.create(title='Test Title')
+        obj1 = SlugifiedTestModel.objects.create(title='Test Title')
+        obj2 = SlugifiedTestModel.objects.create(title='Test Title')
         
         assert obj1.slug == 'test-title'
         assert obj2.slug == 'test-title-1'
 
     def test_manual_slug(self):
         """Test that manual slug is preserved."""
-        obj = TestSlugifiedModel.objects.create(title='Test', slug='custom-slug')
+        obj = SlugifiedTestModel.objects.create(title='Test', slug='custom-slug')
         
         assert obj.slug == 'custom-slug'
 
@@ -140,41 +161,41 @@ class TestSoftDeleteModel:
 
     def test_soft_delete(self):
         """Test soft delete functionality."""
-        obj = TestSoftDeleteModel.objects.create(name='Test')
+        obj = SoftDeleteTestModel.objects.create(name='Test')
         obj_id = obj.id
         
         obj.delete()
         
         # Object should not appear in default queryset
-        assert not TestSoftDeleteModel.objects.filter(id=obj_id).exists()
+        assert not SoftDeleteTestModel.objects.filter(id=obj_id).exists()
         
         # But should exist in all_objects
-        assert TestSoftDeleteModel.all_objects.filter(id=obj_id).exists()
+        assert SoftDeleteTestModel.all_objects.filter(id=obj_id).exists()
         
         # Check is_deleted flag
-        deleted_obj = TestSoftDeleteModel.all_objects.get(id=obj_id)
+        deleted_obj = SoftDeleteTestModel.all_objects.get(id=obj_id)
         assert deleted_obj.is_deleted is True
         assert deleted_obj.deleted_at is not None
 
     def test_restore(self):
         """Test restoring a soft-deleted object."""
-        obj = TestSoftDeleteModel.objects.create(name='Test')
+        obj = SoftDeleteTestModel.objects.create(name='Test')
         obj.delete()
         
         obj.restore()
         
         assert obj.is_deleted is False
         assert obj.deleted_at is None
-        assert TestSoftDeleteModel.objects.filter(id=obj.id).exists()
+        assert SoftDeleteTestModel.objects.filter(id=obj.id).exists()
 
     def test_hard_delete(self):
         """Test hard delete functionality."""
-        obj = TestSoftDeleteModel.objects.create(name='Test')
+        obj = SoftDeleteTestModel.objects.create(name='Test')
         obj_id = obj.id
         
         obj.hard_delete()
         
-        assert not TestSoftDeleteModel.all_objects.filter(id=obj_id).exists()
+        assert not SoftDeleteTestModel.all_objects.filter(id=obj_id).exists()
 
 
 # =========================
@@ -229,6 +250,15 @@ class TestAuditLog:
         )
         
         assert log.changes == changes
+
+
+class TestSMSService:
+    def test_accepts_africas_talking_provider_alias_with_underscore(self, settings):
+        settings.SMS_PROVIDER = "africas_talking"
+
+        service = SMSService()
+
+        assert isinstance(service.provider, AfricasTalkingSMSProvider)
 
 
 # =========================

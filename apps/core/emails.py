@@ -141,29 +141,61 @@ class UserEmailService:
     """
 
     @staticmethod
-    def send_welcome_email(user, verification_token=None) -> bool:
+    def _build_support_links() -> dict:
+        """Build optional web/help/contact links for email templates."""
+        frontend_url = get_frontend_base_url()
+        if not frontend_url:
+            return {
+                "website_url": "",
+                "help_center_url": "",
+                "contact_url": "",
+            }
+        return {
+            "website_url": frontend_url,
+            "help_center_url": f"{frontend_url}/help",
+            "contact_url": f"{frontend_url}/contact",
+        }
+
+    @staticmethod
+    def send_welcome_email(
+        user,
+        verification_token=None,
+        verification_url: Optional[str] = None,
+        *,
+        raise_on_error: bool = False,
+    ) -> bool:
         """
         Send welcome email to new user.
 
         Args:
             user: User instance
             verification_token: Optional verification token
+            verification_url: Optional pre-built verification URL
+            raise_on_error: Raise exception if template rendering/sending fails
 
         Returns:
             True if email was sent
         """
+        from apps.accounts.verification import generate_signed_verification_token
+
         frontend_url = get_frontend_base_url()
-        verification_url = f"{frontend_url}/verify-email/{verification_token}" if verification_token else f"{frontend_url}/login"
+        site_name = getattr(settings, "SITE_NAME", "CampusHub")
+        if not verification_url:
+            if not verification_token:
+                verification_token = generate_signed_verification_token(user)
+            verification_url = f"{frontend_url}/verify-email/{verification_token}"
 
         return EmailService.send_template_email(
             template_name="welcome",
             context={
                 "user": user,
-                "site_name": settings.SITE_NAME,
+                "site_name": site_name,
                 "verification_url": verification_url,
+                **UserEmailService._build_support_links(),
             },
-            subject=f"Welcome to {settings.SITE_NAME}!",
+            subject=f"Welcome to {site_name}! Please verify your email",
             recipient_list=[user.email],
+            raise_on_error=raise_on_error,
         )
 
     @staticmethod
@@ -214,29 +246,44 @@ class UserEmailService:
         )
 
     @staticmethod
-    def send_email_verification_email(user, verification_token) -> bool:
+    def send_email_verification_email(
+        user,
+        verification_token=None,
+        verification_url: Optional[str] = None,
+        *,
+        raise_on_error: bool = False,
+    ) -> bool:
         """
         Send email verification email.
 
         Args:
             user: User instance
             verification_token: Email verification token
+            verification_url: Optional pre-built verification URL
+            raise_on_error: Raise exception if template rendering/sending fails
 
         Returns:
             True if email was sent
         """
+        from apps.accounts.verification import generate_signed_verification_token
+
         frontend_url = get_frontend_base_url()
-        verify_url = f"{frontend_url}/verify-email/{verification_token}"
+        site_name = getattr(settings, "SITE_NAME", "CampusHub")
+        if not verification_url:
+            if not verification_token:
+                verification_token = generate_signed_verification_token(user)
+            verification_url = f"{frontend_url}/verify-email/{verification_token}"
 
         return EmailService.send_template_email(
             template_name="email_verification",
             context={
                 "user": user,
-                "verify_url": verify_url,
-                "site_name": settings.SITE_NAME,
+                "verify_url": verification_url,
+                "site_name": site_name,
             },
             subject="Verify Your Email Address",
             recipient_list=[user.email],
+            raise_on_error=raise_on_error,
         )
 
 

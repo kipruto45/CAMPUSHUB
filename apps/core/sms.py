@@ -1,10 +1,10 @@
 """
 SMS notification service for CampusHub.
-Supports multiple SMS providers (Twilio, Africa's Talking, generic HTTP).
+Supports multiple SMS providers (Africa's Talking, generic HTTP).
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 
 from django.conf import settings
@@ -26,66 +26,6 @@ class SMSProvider(ABC):
         pass
 
 
-class TwilioSMSProvider(SMSProvider):
-    """Twilio SMS provider implementation."""
-
-    def __init__(self):
-        self.account_sid = getattr(settings, "TWILIO_ACCOUNT_SID", "")
-        self.auth_token = getattr(settings, "TWILIO_AUTH_TOKEN", "")
-        self.from_number = getattr(settings, "TWILIO_PHONE_NUMBER", "")
-
-    def send_sms(self, to: str, message: str) -> Dict[str, Any]:
-        """Send SMS via Twilio."""
-        if not self.account_sid or not self.auth_token:
-            logger.warning("Twilio not configured")
-            return {"success": False, "error": "Twilio not configured"}
-
-        try:
-            from twilio.rest import Client
-
-            client = Client(self.account_sid, self.auth_token)
-            msg = client.messages.create(
-                body=message,
-                from_=self.from_number,
-                to=self._normalize_phone(to)
-            )
-            return {
-                "success": True,
-                "message_id": msg.sid,
-                "status": msg.status,
-            }
-        except Exception as e:
-            logger.error(f"Twilio SMS failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def send_bulk_sms(self, to_list: List[str], message: str) -> Dict[str, Any]:
-        """Send bulk SMS via Twilio."""
-        results = []
-        for to in to_list:
-            result = self.send_sms(to, message)
-            results.append(result)
-
-        success_count = sum(1 for r in results if r.get("success"))
-        return {
-            "success": success_count > 0,
-            "total": len(to_list),
-            "sent": success_count,
-            "failed": len(to_list) - success_count,
-            "results": results,
-        }
-
-    def _normalize_phone(self, phone: str) -> str:
-        """Normalize phone number format."""
-        phone = phone.strip().replace(" ", "").replace("-", "")
-        if not phone.startswith("+"):
-            # Assume valid phone format, add + prefix
-            if len(phone) == 12 and phone.startswith("254"):
-                phone = "+" + phone
-            elif len(phone) == 10 and phone.startswith("0"):
-                phone = "+254" + phone[1:]
-        return phone
-
-
 class AfricasTalkingSMSProvider(SMSProvider):
     """Africa's Talking SMS provider implementation."""
 
@@ -103,19 +43,31 @@ class AfricasTalkingSMSProvider(SMSProvider):
         try:
             import requests
 
-            url = f"https://api.africas-talking.com/version1/messaging"
+            url = f"https://api.africastalking.com/version1/messaging"
             headers = {
                 "apiKey": self.api_key,
-                "Content-Type": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
             }
+            # Use form-encoded data as required by Africa's Talking API
             data = {
                 "username": self.username,
                 "message": message,
                 "to": self._normalize_phone(to),
-                "from": self.from_number,
             }
+            if str(self.from_number or "").strip():
+                data["from"] = self.from_number
 
-            response = requests.post(url, json=data, headers=headers)
+            logger.debug(f"Sending SMS to {to} via Africa's Talking")
+            logger.debug(f"URL: {url}")
+            logger.debug(f"Headers: {headers}")
+            logger.debug(f"Data: {data}")
+            
+            response = requests.post(url, data=data, headers=headers, timeout=30)
+            logger.debug(f"Response status: {response.status_code}")
+            logger.debug(f"Response text: {response.text}")
+            
+            # Check for HTTP errors first
+            response.raise_for_status()
             result = response.json()
 
             if response.status_code == 200 and "SMSMessageData" in result:
@@ -126,6 +78,16 @@ class AfricasTalkingSMSProvider(SMSProvider):
                 }
             return {"success": False, "error": result.get("error", "Unknown error")}
 
+        except requests.exceptions.HTTPError as e:
+            error_msg = str(e)
+            if "401" in error_msg or "Unauthorized" in error_msg:
+                logger.error("Africa's Talking authentication failed. Please check your API key and username.")
+                return {"success": False, "error": "Authentication failed. Please check your AFRICAS_TALKING_API_KEY and AFRICAS_TALKING_USERNAME settings."}
+            logger.error(f"Africa's Talking HTTP error: {e}")
+            return {"success": False, "error": f"HTTP error: {e}"}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Africa's Talking request failed: {e}")
+            return {"success": False, "error": f"Request error: {e}"}
         except Exception as e:
             logger.error(f"Africa's Talking SMS failed: {e}")
             return {"success": False, "error": str(e)}
@@ -135,22 +97,23 @@ class AfricasTalkingSMSProvider(SMSProvider):
         try:
             import requests
 
-            url = f"https://api.africas-talking.com/version1/messaging"
+            url = f"https://api.africastalking.com/version1/messaging"
             headers = {
                 "apiKey": self.api_key,
-                "Content-Type": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
             }
+            # Africa's Talking bulk format uses recipients in the data dict
             data = {
                 "username": self.username,
                 "message": message,
                 "bulkSMSMode": 1,
                 "enqueue": 1,
-                "recipients": [
-                    {"phone": self._normalize_phone(to)} for to in to_list
-                ],
+                "recipients": ",".join([self._normalize_phone(to) for to in to_list]),
             }
+            if str(self.from_number or "").strip():
+                data["from"] = self.from_number
 
-            response = requests.post(url, json=data, headers=headers)
+            response = requests.post(url, data=data, headers=headers)
             result = response.json()
 
             if response.status_code == 200:
@@ -225,14 +188,20 @@ class SMSService:
     """Unified SMS service with provider selection."""
 
     PROVIDERS = {
-        "twilio": TwilioSMSProvider,
         "africastalking": AfricasTalkingSMSProvider,
         "generic": GenericHTTPProvider,
     }
 
     def __init__(self):
-        provider_name = getattr(settings, "SMS_PROVIDER", "twilio")
-        provider_class = self.PROVIDERS.get(provider_name, TwilioSMSProvider)
+        provider_name = str(
+            getattr(settings, "SMS_PROVIDER", "africastalking")
+            or "africastalking"
+        )
+        normalized_provider = provider_name.strip().lower().replace("_", "").replace("-", "")
+        provider_class = self.PROVIDERS.get(
+            normalized_provider,
+            AfricasTalkingSMSProvider,
+        )
         self.provider = provider_class()
 
     def send(self, to: str, message: str) -> Dict[str, Any]:

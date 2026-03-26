@@ -998,3 +998,19 @@ JAZZMIN_UI_TWEAKS = {
     },
     "block_month": True,
 }
+
+
+# =============================================================================
+# SMS Configuration
+# =============================================================================
+SMS_PROVIDER = config('SMS_PROVIDER', default='africastalking')
+
+# Africa's Talking SMS Settings
+AFRICAS_TALKING_USERNAME = config('AFRICAS_TALKING_USERNAME', default='')
+AFRICAS_TALKING_API_KEY = config('AFRICAS_TALKING_API_KEY', default='')
+AFRICAS_TALKING_SHORT_CODE = config('AFRICAS_TALKING_SHORT_CODE', default='')
+
+# Generic SMS API Settings
+SMS_API_URL = config('SMS_API_URL', default='')
+SMS_API_KEY = config('SMS_API_KEY', default='')
+SMS_SENDER_ID = config('SMS_SENDER_ID', default='CampusHub')
