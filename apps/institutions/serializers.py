@@ -67,3 +67,40 @@ class InstitutionInvitationSerializer(serializers.ModelSerializer):
             'accepted', 'accepted_at', 'expires_at', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+
+class InstitutionRegistrationSerializer(serializers.ModelSerializer):
+    """Serializer for institution registration (public)"""
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
+    contact_name = serializers.CharField(write_only=True, required=True)
+    contact_email = serializers.EmailField(write_only=True, required=True)
+    
+    class Meta:
+        model = Institution
+        fields = [
+            'name', 'short_name', 'slug', 'description',
+            'email_domain', 'website', 'phone', 'address',
+            'institution_type', 'password', 'confirm_password',
+            'contact_name', 'contact_email',
+        ]
+    
+    def validate(self, data):
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match")
+        return data
+    
+    def validate_slug(self, value):
+        from django.utils.text import slugify
+        slug = slugify(value)
+        if Institution.objects.filter(slug=slug).exists():
+            raise serializers.ValidationError("This URL slug is already taken")
+        return slug
+
+
+class InstitutionApprovalSerializer(serializers.ModelSerializer):
+    """Serializer for institution approval"""
+    
+    class Meta:
+        model = Institution
+        fields = ['is_active', 'is_verified', 'subscription_tier']

@@ -14,6 +14,10 @@ urlpatterns = [
     path('my/', views.MyInstitutionView.as_view(), name='my-institution'),
     path('<uuid:institution_id>/stats/', views.InstitutionStatsView.as_view(), name='institution-stats'),
     
+    # Registration & Approval (public)
+    path('register/', views.InstitutionRegistrationView.as_view(), name='institution-register'),
+    path('<uuid:pk>/approve/', views.InstitutionApprovalView.as_view(), name='institution-approve'),
+    
     # Admins
     path('<uuid:institution_id>/admins/', views.InstitutionAdminsView.as_view(), name='institution-admins'),
     

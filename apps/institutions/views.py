@@ -14,6 +14,8 @@ from .serializers import (
     InstitutionAdminSerializer,
     DepartmentSerializer,
     InstitutionInvitationSerializer,
+    InstitutionRegistrationSerializer,
+    InstitutionApprovalSerializer,
 )
 
 
@@ -178,3 +180,70 @@ def detect_institution(request):
         'institution': InstitutionSerializer(institution).data,
         'requires_verification': institution.require_email_verification,
     })
+
+
+class InstitutionRegistrationView(generics.CreateAPIView):
+    """Register a new institution (public endpoint)"""
+    serializer_class = InstitutionRegistrationSerializer
+    permission_classes = [AllowAny]
+    
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Create institution (initially inactive pending approval)
+        institution = serializer.save(
+            is_active=False,  # Requires approval
+            is_verified=False,
+            allow_registration=True,
+        )
+        
+        # Create the admin user for this institution
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        # Create admin user with contact email from registration
+        user = User.objects.create_user(
+            email=request.data.get('contact_email'),
+            password=request.data.get('password'),
+            full_name=request.data.get('contact_name', ''),
+            role='admin',
+            institution=institution,
+        )
+        
+        # Create InstitutionAdmin role
+        InstitutionAdmin.objects.create(
+            user=user,
+            institution=institution,
+            role='owner',
+            can_manage_users=True,
+            can_manage_content=True,
+            can_manage_settings=True,
+            can_view_analytics=True,
+        )
+        
+        return Response({
+            'message': 'Institution registered successfully. Pending approval.',
+            'institution': InstitutionSerializer(institution).data,
+            'login_url': '/accounts/login/'
+        }, status=status.HTTP_201_CREATED)
+
+
+class InstitutionApprovalView(generics.UpdateAPIView):
+    """Approve or reject an institution (admin only)"""
+    serializer_class = InstitutionApprovalSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = Institution.objects.all()
+    lookup_field = 'pk'
+    
+    def perform_update(self, serializer):
+        # In production, check if user is super admin
+        instance = serializer.save()
+        
+        # Send approval email (placeholder)
+        self.send_approval_email(instance)
+    
+    def send_approval_email(self, institution):
+        """Send approval notification email"""
+        # Implementation would send email via Django's email backend
+        pass
