@@ -2,8 +2,9 @@
 Serializers for Live Study Rooms
 """
 
-from rest_framework import serializers
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
 from .models import StudyRoom, RoomParticipant, RoomMessage, RoomRecording
 
 
@@ -46,16 +47,22 @@ class StudyRoomSerializer(serializers.ModelSerializer):
             'is_active',
         ]
 
-    def get_participant_count(self, obj):
-        return obj.participants.filter(is_active=True).count()
+    @extend_schema_field(serializers.IntegerField())
+    def get_participant_count(self, obj) -> int:
+        return obj.participants.filter(
+            left_at__isnull=True,
+            status=RoomParticipant.Status.CONNECTED,
+        ).count()
 
-    def get_is_joined(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_joined(self, obj) -> bool:
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.participants.filter(user=request.user, left_at__isnull=True).exists()
         return False
 
-    def get_is_active(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_active(self, obj) -> bool:
         return bool(getattr(obj, "is_active", False))
 
 
@@ -97,10 +104,12 @@ class RoomParticipantSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'joined_at', 'is_host']
 
-    def get_is_host(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_host(self, obj) -> bool:
         return obj.room.host == obj.user
 
-    def get_is_active(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_active(self, obj) -> bool:
         return bool(getattr(obj, "is_active", False))
 
 

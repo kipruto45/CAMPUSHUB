@@ -120,10 +120,16 @@ class InvitationListView(generics.ListCreateAPIView):
     serializer_class = InstitutionInvitationSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return InstitutionInvitation.objects.none()
+
         institution_id = self.kwargs.get('institution_id')
-        
-        # Check permission
-        if not MultiTenantService.can_manage_users(self.request.user, Institution(id=institution_id)):
+
+        if not institution_id or not self.request.user.is_authenticated:
+            return InstitutionInvitation.objects.none()
+
+        # Check permission without constructing an unsaved Institution instance.
+        if not MultiTenantService.can_manage_users(self.request.user, institution_id):
             return InstitutionInvitation.objects.none()
         
         return InstitutionInvitation.objects.filter(

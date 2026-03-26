@@ -24,6 +24,8 @@ class MobileAuthTests(APITestCase):
             first_name='Test',
             last_name='User'
         )
+        self.user.is_verified = True
+        self.user.save(update_fields=['is_verified'])
     
     def test_mobile_register_success(self):
         """Test mobile registration endpoint."""

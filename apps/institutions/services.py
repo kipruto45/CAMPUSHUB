@@ -16,6 +16,13 @@ User = get_user_model()
 
 class MultiTenantService:
     """Service for multi-tenant operations"""
+
+    @staticmethod
+    def _institution_id(institution) -> uuid.UUID | str | int | None:
+        """Normalize an institution object or raw identifier to an ID value."""
+        if isinstance(institution, Institution):
+            return institution.pk
+        return institution
     
     @staticmethod
     def get_user_institution(user) -> Institution | None:
@@ -37,19 +44,21 @@ class MultiTenantService:
     @staticmethod
     def is_institution_admin(user, institution) -> bool:
         """Check if user is an admin for an institution"""
+        institution_id = MultiTenantService._institution_id(institution)
         return InstitutionAdmin.objects.filter(
             user=user,
-            institution=institution,
+            institution_id=institution_id,
             is_active=True
         ).exists()
     
     @staticmethod
     def get_admin_role(user, institution) -> str | None:
         """Get user's admin role for an institution"""
+        institution_id = MultiTenantService._institution_id(institution)
         try:
             admin = InstitutionAdmin.objects.get(
                 user=user,
-                institution=institution,
+                institution_id=institution_id,
                 is_active=True
             )
             return admin.role
@@ -59,10 +68,11 @@ class MultiTenantService:
     @staticmethod
     def can_manage_users(user, institution) -> bool:
         """Check if user can manage users in an institution"""
+        institution_id = MultiTenantService._institution_id(institution)
         try:
             admin = InstitutionAdmin.objects.get(
                 user=user,
-                institution=institution,
+                institution_id=institution_id,
                 is_active=True
             )
             return admin.role == 'owner' or admin.can_manage_users
@@ -72,10 +82,11 @@ class MultiTenantService:
     @staticmethod
     def can_manage_content(user, institution) -> bool:
         """Check if user can manage content in an institution"""
+        institution_id = MultiTenantService._institution_id(institution)
         try:
             admin = InstitutionAdmin.objects.get(
                 user=user,
-                institution=institution,
+                institution_id=institution_id,
                 is_active=True
             )
             return admin.role == 'owner' or admin.can_manage_content
@@ -86,6 +97,7 @@ class MultiTenantService:
     def get_institution_queryset(user, base_queryset):
         """Filter a queryset to only show items from user's institution"""
         institution = MultiTenantService.get_user_institution(user)
+        institution_id = MultiTenantService._institution_id(institution)
         
         if not institution:
             # User doesn't belong to an institution
@@ -95,10 +107,10 @@ class MultiTenantService:
         # Check if user is an admin
         if MultiTenantService.is_institution_admin(user, institution):
             # Admin sees all content from their institution
-            return base_queryset.filter(institution=institution)
+            return base_queryset.filter(institution_id=institution_id)
         
         # Regular user sees only content from their institution
-        return base_queryset.filter(institution=institution)
+        return base_queryset.filter(institution_id=institution_id)
     
     @staticmethod
     def create_invitation(institution, email, role, department=None, invited_by=None):
@@ -155,8 +167,9 @@ class MultiTenantService:
     @staticmethod
     def get_departments(institution) -> list[Department]:
         """Get all departments for an institution"""
+        institution_id = MultiTenantService._institution_id(institution)
         return Department.objects.filter(
-            institution=institution,
+            institution_id=institution_id,
             is_active=True
         ).order_by('name')
     

@@ -24,6 +24,11 @@ def _auth_client(user):
     return client
 
 
+def _mark_user_verified(user):
+    user.is_verified = True
+    user.save(update_fields=["is_verified"])
+
+
 @pytest.mark.django_db
 def test_register_succeeds_even_when_verification_email_fails(api_client):
     with patch(
@@ -90,6 +95,8 @@ def test_login_lockout_kicks_in_after_repeated_invalid_payloads(api_client, user
 
 @pytest.mark.django_db
 def test_login_triggers_suspicious_alert_when_detector_returns_true(api_client, user):
+    _mark_user_verified(user)
+
     with patch("apps.accounts.views._is_suspicious_login", return_value=True), patch(
         "apps.accounts.views._send_suspicious_login_alert"
     ) as alert_mock:
@@ -205,6 +212,8 @@ def test_logout_returns_success_even_on_internal_failure(user, monkeypatch):
 
 @pytest.mark.django_db
 def test_login_parses_string_remember_me_flag(user, monkeypatch):
+    _mark_user_verified(user)
+
     client = APIClient()
     captured = {}
 

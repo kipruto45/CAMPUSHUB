@@ -702,7 +702,11 @@ def export_data(request):
     """
     Export platform data as metadata or downloadable CSV/PDF/Excel files.
     """
-    export_format = str(request.query_params.get("format") or "csv").strip().lower()
+    # Avoid DRF's reserved `format` query override, which short-circuits the view
+    # with a 404 before our export handler runs.
+    export_format = str(
+        request.query_params.get("export_format") or "csv"
+    ).strip().lower()
 
     if _is_truthy(request.query_params.get("download")):
         payload = _collect_export_payload(request.user)
@@ -719,17 +723,17 @@ def export_data(request):
             "csv": _build_download_url(
                 request,
                 request.path,
-                {"download": "1", "format": "csv"},
+                {"download": "1", "export_format": "csv"},
             ),
             "pdf": _build_download_url(
                 request,
                 request.path,
-                {"download": "1", "format": "pdf"},
+                {"download": "1", "export_format": "pdf"},
             ),
             "excel": _build_download_url(
                 request,
                 request.path,
-                {"download": "1", "format": "excel"},
+                {"download": "1", "export_format": "excel"},
             ),
         },
         "generated_at": exported_at.isoformat(),

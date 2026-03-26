@@ -24,6 +24,9 @@ class TestMobileAuthEndpoints:
         assert 'code' in payload or 'detail' in payload
 
     def test_mobile_login_accepts_registration_number(self, api_client, user):
+        user.is_verified = True
+        user.save(update_fields=['is_verified'])
+
         response = api_client.post(
             '/api/mobile/login/',
             {'registration_number': user.registration_number, 'password': 'testpass123'},

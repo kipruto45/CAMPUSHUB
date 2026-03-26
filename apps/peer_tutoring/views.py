@@ -2,8 +2,8 @@
 Views for Peer Tutoring API
 """
 
+from django.db import models
 from rest_framework import generics, status
-import django.db.models
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -58,9 +58,11 @@ class SessionListCreateView(generics.ListCreateAPIView):
         return TutoringSessionSerializer
     
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return TutoringSession.objects.none()
         user = self.request.user
         return TutoringSession.objects.filter(
-            models.Q(tutor__user=user) | models(student=user)
+            models.Q(tutor__user=user) | models.Q(student=user)
         ).select_related('tutor__user', 'student')
     
     def perform_create(self, serializer):

@@ -114,7 +114,7 @@ class FCMService:
     def _get_access_token(self) -> Optional[str]:
         """Get OAuth2 access token using service account."""
         import json
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
 
         # Check if we have a valid cached token
         if self._access_token and self._token_expiry and datetime.now() < self._token_expiry:
@@ -129,7 +129,7 @@ class FCMService:
                 service_account = json.load(f)
 
             # Create JWT token
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             token_payload = {
                 'iss': service_account['client_email'],
                 'sub': service_account['client_email'],

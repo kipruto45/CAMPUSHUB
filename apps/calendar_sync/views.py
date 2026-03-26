@@ -24,6 +24,8 @@ class CalendarAccountListView(generics.ListCreateAPIView):
     serializer_class = CalendarAccountSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return CalendarAccount.objects.none()
         return CalendarAccount.objects.filter(
             user=self.request.user,
             is_active=True
@@ -36,6 +38,8 @@ class CalendarAccountDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CalendarAccountSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return CalendarAccount.objects.none()
         return CalendarAccount.objects.filter(user=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
@@ -71,6 +75,8 @@ class SyncedEventsListView(generics.ListAPIView):
     serializer_class = SyncedEventSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return SyncedEvent.objects.none()
         days = int(self.request.query_params.get('days', 30))
         return CalendarSyncService.get_user_calendar_events(
             self.request.user,

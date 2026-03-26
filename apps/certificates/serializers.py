@@ -133,14 +133,7 @@ class CertificateDetailSerializer(serializers.ModelSerializer):
 class CertificateGenerateSerializer(serializers.Serializer):
     """Serializer for generating certificates."""
 
-    CERTIFICATE_TYPES = [
-        ("course_completion", "Course Completion"),
-        ("achievement", "Achievement"),
-        ("milestone", "Milestone"),
-        ("custom", "Custom"),
-    ]
-
-    certificate_type = serializers.ChoiceField(choices=CERTIFICATE_TYPES)
+    certificate_type = serializers.ChoiceField(choices=CertificateType.TYPE_CHOICES)
     user_id = serializers.IntegerField()
     course_id = serializers.UUIDField(required=False)
     achievement_id = serializers.IntegerField(required=False)

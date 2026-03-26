@@ -6,6 +6,7 @@ import uuid
 
 from django.conf import settings
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -251,6 +252,7 @@ class MicrosoftTeamsCoursesView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="api_integrations_microsoft_teams_courses_list")
     def get(self, request):
         """Get all synced teams for the user."""
         try:
@@ -273,6 +275,7 @@ class MicrosoftTeamsCourseDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="api_integrations_microsoft_teams_courses_retrieve")
     def get(self, request, team_id):
         """Get details of a specific synced team."""
         try:

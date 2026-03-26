@@ -24,6 +24,17 @@ from apps.admin_management.models import (
 User = get_user_model()
 
 
+def _role_definition(code: str, **defaults) -> AdminInvitationRole:
+    role, _created = AdminInvitationRole.objects.get_or_create(
+        code=code,
+        defaults={
+            "name": defaults.pop("name", code.replace("_", " ").title()),
+            **defaults,
+        },
+    )
+    return role
+
+
 @pytest.fixture
 def user(db):
     """Create a test user."""
@@ -237,8 +248,8 @@ class TestAdminInvitationRole:
 
     def test_create_role(self):
         """Test creating an admin invitation role."""
-        role = AdminInvitationRole.objects.create(
-            code='INSTRUCTOR',
+        role = _role_definition(
+            'INSTRUCTOR',
             name='Instructor',
             description='Teaching staff member',
         )
@@ -255,7 +266,7 @@ class TestAdminInvitationRole:
         expected_codes = ['STUDENT', 'INSTRUCTOR', 'DEPARTMENT_HEAD', 'SUPPORT_STAFF', 'MODERATOR', 'ADMIN']
         
         for code in expected_codes:
-            role = AdminInvitationRole.objects.create(
+            role = _role_definition(
                 code=code,
                 name=code.replace('_', ' ').title(),
             )
@@ -263,6 +274,7 @@ class TestAdminInvitationRole:
 
     def test_save_normalizes_code(self):
         """Test that save normalizes the code to uppercase."""
+        AdminInvitationRole.objects.filter(code='STUDENT').delete()
         role = AdminInvitationRole.objects.create(
             code='student',  # lowercase
             name='Student',
@@ -272,6 +284,7 @@ class TestAdminInvitationRole:
 
     def test_save_invalid_code_defaults_to_student(self):
         """Test that invalid code defaults to STUDENT."""
+        AdminInvitationRole.objects.filter(code='STUDENT').delete()
         role = AdminInvitationRole.objects.create(
             code='INVALID_ROLE',
             name='Invalid Role',
@@ -463,10 +476,7 @@ class TestAdminRoleInvitationRole:
             invited_by=user,
         )
         
-        role_definition = AdminInvitationRole.objects.create(
-            code='INSTRUCTOR',
-            name='Instructor',
-        )
+        role_definition = _role_definition(code='INSTRUCTOR', name='Instructor')
         
         invitation_role = AdminRoleInvitationRole.objects.create(
             invitation=invitation,
@@ -489,10 +499,7 @@ class TestAdminUserRoleAssignment:
 
     def test_create_role_assignment(self, user, admin_user):
         """Test creating a user role assignment."""
-        role_definition = AdminInvitationRole.objects.create(
-            code='INSTRUCTOR',
-            name='Instructor',
-        )
+        role_definition = _role_definition(code='INSTRUCTOR', name='Instructor')
         
         assignment = AdminUserRoleAssignment.objects.create(
             user=user,

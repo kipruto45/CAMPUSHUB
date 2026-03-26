@@ -128,6 +128,7 @@ class PersonalScheduleListView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        operation_id="api_calendar_schedules_list",
         summary="List Personal Schedules",
         description="Get user's personal schedule events"
     )
@@ -180,7 +181,10 @@ class PersonalScheduleDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(summary="Get Schedule")
+    @extend_schema(
+        operation_id="api_calendar_schedules_retrieve",
+        summary="Get Schedule",
+    )
     def get(self, request, pk):
         try:
             schedule = PersonalSchedule.objects.get(pk=pk, user=request.user)
@@ -201,7 +205,10 @@ class PersonalScheduleDetailView(APIView):
             "is_all_day": schedule.is_all_day,
         })
 
-    @extend_schema(summary="Update Schedule")
+    @extend_schema(
+        operation_id="api_calendar_schedules_update",
+        summary="Update Schedule",
+    )
     def put(self, request, pk):
         try:
             schedule = PersonalSchedule.objects.get(pk=pk, user=request.user)
@@ -219,7 +226,10 @@ class PersonalScheduleDetailView(APIView):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(summary="Delete Schedule")
+    @extend_schema(
+        operation_id="api_calendar_schedules_destroy",
+        summary="Delete Schedule",
+    )
     def delete(self, request, pk):
         try:
             schedule = PersonalSchedule.objects.get(pk=pk, user=request.user)

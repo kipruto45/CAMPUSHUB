@@ -55,6 +55,8 @@ class CertificateListCreateView(generics.ListCreateAPIView):
         return CertificateListSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Certificate.objects.none()
         return Certificate.objects.filter(user=self.request.user)
 
     def post(self, request, *args, **kwargs):
@@ -204,6 +206,8 @@ class UserCertificateListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Certificate.objects.none()
         user_id = self.kwargs.get("user_id")
         return Certificate.objects.filter(user_id=user_id)
 

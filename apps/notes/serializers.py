@@ -4,11 +4,13 @@ Notes Serializers for CampusHub
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from .models import Note, NoteShare, NoteVersion, NotePresence, NoteLock
 
 User = get_user_model()
 
 
+@extend_schema_serializer(component_name="NoteUser")
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user info"""
     
@@ -88,10 +90,12 @@ class NoteListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
-    def get_share_count(self, obj):
+    @extend_schema_field(serializers.IntegerField())
+    def get_share_count(self, obj) -> int:
         return obj.shares.filter(is_active=True).count()
     
-    def get_version_count(self, obj):
+    @extend_schema_field(serializers.IntegerField())
+    def get_version_count(self, obj) -> int:
         return obj.versions.count()
 
 
@@ -114,6 +118,7 @@ class NoteDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'owner', 'created_at', 'updated_at']
     
+    @extend_schema_field(NotePresenceSerializer(many=True))
     def get_presence(self, obj):
         """Get active presence for the note"""
         from django.utils import timezone
@@ -127,6 +132,7 @@ class NoteDetailSerializer(serializers.ModelSerializer):
         ).select_related('user')
         return NotePresenceSerializer(presence, many=True).data
     
+    @extend_schema_field(NoteLockSerializer(allow_null=True))
     def get_active_lock(self, obj):
         """Get active lock for the note"""
         from django.utils import timezone

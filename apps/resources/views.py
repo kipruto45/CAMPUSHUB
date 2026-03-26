@@ -66,7 +66,9 @@ from .services import (ResourceDetailService, ResourceDownloadService,
 class ResourceViewSet(viewsets.ModelViewSet):
     """ViewSet for Resource model."""
 
-    queryset = Resource.objects.filter(is_deleted=False)
+    queryset = Resource.objects.filter(is_deleted=False).order_by(
+        "-is_pinned", "-created_at"
+    )
     permission_classes = [IsAuthenticatedOrReadOnly]
     lookup_field = "slug"
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -234,7 +236,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
                 ),
             )
 
-        return queryset
+        return queryset.order_by("-is_pinned", "-created_at")
 
     def get_permissions(self):
         if self.action == "create":
@@ -844,7 +846,9 @@ class ResourceListView(generics.ListAPIView):
     ]
 
     def get_queryset(self):
-        queryset = Resource.objects.filter(status="approved", is_deleted=False)
+        queryset = Resource.objects.filter(status="approved", is_deleted=False).order_by(
+            "-is_pinned", "-created_at"
+        )
 
         # Apply filters
         faculty_id = self.request.query_params.get("faculty")

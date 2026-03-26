@@ -3,6 +3,7 @@ Serializers for Institutions
 """
 
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_serializer
 from .models import Institution, InstitutionAdmin, Department, InstitutionInvitation
 
 
@@ -41,6 +42,7 @@ class InstitutionAdminSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+@extend_schema_serializer(component_name="InstitutionDepartment")
 class DepartmentSerializer(serializers.ModelSerializer):
     """Serializer for Department"""
     head_name = serializers.CharField(source='head.get_full_name', read_only=True)

@@ -79,7 +79,7 @@ class RateResourceView(generics.CreateAPIView):
     serializer_class = RatingCreateSerializer
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(operation_id="api_resources_rate_by_id_create")
+    @extend_schema(operation_id="api_ratings_resources_rate_create")
     def post(self, request, *args, **kwargs):
         return self.create(request, *args, **kwargs)
 

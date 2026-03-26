@@ -7,6 +7,7 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import *  # noqa: F401, F403
+from config.spectacular import SPECTACULAR_SETTINGS
 
 DEBUG = False
 

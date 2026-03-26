@@ -30,29 +30,21 @@ class RoomListCreateView(generics.ListCreateAPIView):
         return StudyRoomSerializer
 
     def get_queryset(self):
-        queryset = StudyRoom.objects.filter(is_active=True)
+        if getattr(self, "swagger_fake_view", False):
+            return StudyRoom.objects.none()
+
+        queryset = StudyRoom.objects.exclude(status=StudyRoom.RoomStatus.ENDED)
         
         # Filter by room type
         room_type = self.request.query_params.get('type')
         if room_type:
             queryset = queryset.filter(room_type=room_type)
-        
-        # Filter by subject
-        subject = self.request.query_params.get('subject')
-        if subject:
-            queryset = queryset.filter(subject__icontains=subject)
-        
-        # Filter by privacy
-        privacy = self.request.query_params.get('privacy')
-        if privacy:
-            queryset = queryset.filter(privacy=privacy)
-        
-        # Only show rooms that haven't ended
-        queryset = queryset.filter(
-            Q(end_time__isnull=True) | Q(end_time__gt=timezone.now())
-        ).order_by('-created_at')
-        
-        return queryset
+
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset.select_related('host', 'study_group').order_by('-created_at')
 
 
 class RoomDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -71,7 +63,7 @@ class JoinRoomView(APIView):
 
     def post(self, request, pk):
         try:
-            room = StudyRoom.objects.get(pk=pk, is_active=True)
+            room = StudyRoom.objects.exclude(status=StudyRoom.RoomStatus.ENDED).get(pk=pk)
         except StudyRoom.DoesNotExist:
             return Response(
                 {'error': 'Room not found or not active'},
@@ -79,7 +71,11 @@ class JoinRoomView(APIView):
             )
 
         # Check if room is at capacity
-        if room.max_participants and room.current_participants >= room.max_participants:
+        active_participants = room.participants.filter(
+            left_at__isnull=True,
+            status=RoomParticipant.Status.CONNECTED,
+        ).count()
+        if room.max_participants and active_participants >= room.max_participants:
             return Response(
                 {'error': 'Room is at capacity'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -90,20 +86,15 @@ class JoinRoomView(APIView):
             room=room,
             user=request.user,
             defaults={
-                'joined_at': timezone.now(),
-                'is_active': True,
+                'status': RoomParticipant.Status.CONNECTED,
             }
         )
 
         if not created:
             # Reactivate if already joined but was inactive
-            participant.is_active = True
-            participant.joined_at = timezone.now()
-            participant.save()
-
-        # Update room participant count
-        room.current_participants = room.participants.filter(is_active=True).count()
-        room.save()
+            participant.status = RoomParticipant.Status.CONNECTED
+            participant.left_at = None
+            participant.save(update_fields=['status', 'left_at'])
 
         serializer = RoomParticipantSerializer(participant)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -118,7 +109,7 @@ class LeaveRoomView(APIView):
             participant = RoomParticipant.objects.get(
                 room__pk=pk,
                 user=request.user,
-                is_active=True
+                left_at__isnull=True,
             )
         except RoomParticipant.DoesNotExist:
             return Response(
@@ -126,14 +117,9 @@ class LeaveRoomView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        participant.is_active = False
+        participant.status = RoomParticipant.Status.DISCONNECTED
         participant.left_at = timezone.now()
-        participant.save()
-
-        # Update room participant count
-        room = participant.room
-        room.current_participants = room.participants.filter(is_active=True).count()
-        room.save()
+        participant.save(update_fields=['status', 'left_at'])
 
         return Response({'message': 'Left room successfully'}, status=status.HTTP_200_OK)
 
@@ -144,9 +130,14 @@ class RoomParticipantsView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return RoomParticipant.objects.none()
+        room_id = self.kwargs.get('pk')
+        if not room_id:
+            return RoomParticipant.objects.none()
         return RoomParticipant.objects.filter(
-            room__pk=self.kwargs['pk'],
-            is_active=True
+            room__pk=room_id,
+            left_at__isnull=True,
         ).select_related('user')
 
 
@@ -156,8 +147,13 @@ class RoomMessagesView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return RoomMessage.objects.none()
+        room_id = self.kwargs.get('pk')
+        if not room_id:
+            return RoomMessage.objects.none()
         return RoomMessage.objects.filter(
-            room__pk=self.kwargs['pk']
+            room__pk=room_id
         ).select_related('user').order_by('-created_at')[:100]
 
     def perform_create(self, serializer):
@@ -187,21 +183,28 @@ class StartRecordingView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Check if already recording
-        if room.is_recording:
+        # Check if room supports recording
+        if not room.is_recording_enabled:
+            return Response(
+                {'error': 'Recording is not enabled for this room'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if RoomRecording.objects.filter(
+            room=room,
+            status=RoomRecording.Status.RECORDING,
+        ).exists():
             return Response(
                 {'error': 'Room is already being recorded'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        room.is_recording = True
-        room.save()
-
         # Create recording record
         recording = RoomRecording.objects.create(
             room=room,
-            started_at=timezone.now(),
-            recording_url=f'/recordings/{room.id}/{uuid.uuid4()}.webm'
+            recorded_by=request.user,
+            file_url=f'/recordings/{room.id}/{uuid.uuid4()}.webm',
+            status=RoomRecording.Status.RECORDING,
         )
 
         return Response(
@@ -230,25 +233,20 @@ class StopRecordingView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Check if not recording
-        if not room.is_recording:
+        # Update recording record
+        recording = RoomRecording.objects.filter(
+            room=room,
+            status=RoomRecording.Status.RECORDING,
+        ).first()
+
+        if not recording:
             return Response(
                 {'error': 'Room is not being recorded'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        room.is_recording = False
-        room.save()
-
-        # Update recording record
-        recording = RoomRecording.objects.filter(
-            room=room,
-            ended_at__isnull=True
-        ).first()
-
-        if recording:
-            recording.ended_at = timezone.now()
-            recording.save()
+        recording.status = RoomRecording.Status.COMPLETED
+        recording.save(update_fields=['status'])
 
         return Response({'message': 'Recording stopped'}, status=status.HTTP_200_OK)
 
@@ -259,10 +257,10 @@ class ActiveRoomsView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return StudyRoom.objects.none()
         return StudyRoom.objects.filter(
-            is_active=True,
-        ).filter(
-            Q(end_time__isnull=True) | Q(end_time__gt=timezone.now())
+            status=StudyRoom.RoomStatus.ACTIVE,
         ).select_related('host').order_by('-created_at')[:50]
 
 
@@ -272,14 +270,17 @@ class MyRoomsView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return StudyRoom.objects.none()
         # Get rooms where user is host or active participant
         participant_room_ids = RoomParticipant.objects.filter(
             user=self.request.user,
-            is_active=True
+            left_at__isnull=True,
+            status=RoomParticipant.Status.CONNECTED,
         ).values_list('room_id', flat=True)
 
         return StudyRoom.objects.filter(
             Q(host=self.request.user) | Q(id__in=participant_room_ids)
-        ).filter(
-            Q(end_time__isnull=True) | Q(end_time__gt=timezone.now())
+        ).exclude(
+            status=StudyRoom.RoomStatus.ENDED
         ).select_related('host').order_by('-created_at')

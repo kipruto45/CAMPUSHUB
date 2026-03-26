@@ -110,7 +110,7 @@ class TutoringSession(models.Model):
         return f"{self.subject} - {self.tutor.user.email} -> {self.student.email}"
     
     @property
-    def duration_minutes(self):
+    def duration_minutes(self) -> int:
         if self.actual_start and self.actual_end:
             delta = self.actual_end - self.actual_start
             return int(delta.total_seconds() / 60)

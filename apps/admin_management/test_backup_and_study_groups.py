@@ -201,7 +201,7 @@ def test_export_download_supports_multiple_formats(
 
     response = admin_client.get(
         reverse("admin_management:export-data"),
-        {"download": "1", "format": export_format},
+        {"download": "1", "export_format": export_format},
     )
 
     assert response.status_code == status.HTTP_200_OK

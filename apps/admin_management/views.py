@@ -2891,6 +2891,10 @@ class AdminAPIKeyListCreateView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        operation_id="api_admin_management_api_keys_list",
+        tags=["Admin API Keys"],
+    )
     def get(self, request):
         queryset = APIKey.objects.filter(user=request.user).order_by("-created_at")
         serializer = AdminAPIKeySerializer(queryset, many=True)
@@ -2917,6 +2921,10 @@ class AdminAPIKeyDetailView(APIView):
     def get_object(self, request, key_id):
         return get_object_or_404(APIKey, id=key_id, user=request.user)
 
+    @extend_schema(
+        operation_id="api_admin_management_api_keys_retrieve",
+        tags=["Admin API Keys"],
+    )
     def get(self, request, key_id):
         api_key = self.get_object(request, key_id)
         return Response(AdminAPIKeySerializer(api_key).data)
@@ -2974,6 +2982,10 @@ class AdminWorkflowListCreateView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        operation_id="api_admin_management_workflows_list",
+        tags=["Admin Workflows"],
+    )
     def get(self, request):
         queryset = Workflow.objects.select_related("created_by").order_by("-created_at")
         serializer = AdminWorkflowSerializer(
@@ -3024,6 +3036,10 @@ class AdminWorkflowDetailView(APIView):
     def get_object(self, workflow_id):
         return get_object_or_404(Workflow, id=workflow_id)
 
+    @extend_schema(
+        operation_id="api_admin_management_workflows_retrieve",
+        tags=["Admin Workflows"],
+    )
     def get(self, request, workflow_id):
         workflow = self.get_object(workflow_id)
         return Response(
@@ -3147,6 +3163,10 @@ class AdminWebhookListCreateView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        operation_id="api_admin_management_webhooks_list",
+        tags=["Admin Webhooks"],
+    )
     def get(self, request):
         queryset = Webhook.objects.select_related("created_by").order_by("-created_at")
         serializer = AdminWebhookSerializer(
@@ -3176,6 +3196,10 @@ class AdminWebhookDetailView(APIView):
     def get_object(self, webhook_id):
         return get_object_or_404(Webhook, id=webhook_id)
 
+    @extend_schema(
+        operation_id="api_admin_management_webhooks_retrieve",
+        tags=["Admin Webhooks"],
+    )
     def get(self, request, webhook_id):
         webhook = self.get_object(webhook_id)
         return Response(

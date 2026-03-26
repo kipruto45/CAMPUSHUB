@@ -33,6 +33,7 @@ class DashboardView(generics.RetrieveAPIView):
 class SubjectBreakdownView(generics.ListAPIView):
     """Get study time breakdown by subject"""
     permission_classes = [IsAuthenticated]
+    queryset = LearningSession.objects.none()
 
     def get(self, request):
         period = int(request.query_params.get('period', 30))
@@ -43,6 +44,7 @@ class SubjectBreakdownView(generics.ListAPIView):
 class WeeklyProgressView(generics.ListAPIView):
     """Get weekly study progress"""
     permission_classes = [IsAuthenticated]
+    queryset = LearningProgress.objects.none()
 
     def get(self, request):
         data = LearningAnalyticsService.get_weekly_progress(request.user)
@@ -52,6 +54,7 @@ class WeeklyProgressView(generics.ListAPIView):
 class PerformanceTrendsView(generics.ListAPIView):
     """Get performance trends over time"""
     permission_classes = [IsAuthenticated]
+    queryset = PerformanceMetrics.objects.none()
 
     def get(self, request):
         period = int(request.query_params.get('period', 90))
@@ -147,6 +150,8 @@ class InsightsListView(generics.ListAPIView):
     serializer_class = LearningInsightSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return LearningInsight.objects.none()
         queryset = LearningInsight.objects.filter(user=self.request.user)
         
         # Filter by read status
@@ -199,6 +204,8 @@ class MetricsListView(generics.ListAPIView):
     serializer_class = PerformanceMetricsSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return PerformanceMetrics.objects.none()
         return PerformanceMetrics.objects.filter(
             user=self.request.user
         ).order_by('-period_start')[:12]

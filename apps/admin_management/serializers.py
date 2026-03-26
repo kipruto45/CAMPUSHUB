@@ -135,7 +135,7 @@ class AdminUserStatusUpdateSerializer(serializers.Serializer):
 class AdminUserRoleUpdateSerializer(serializers.Serializer):
     """Payload for role updates."""
 
-    role = serializers.ChoiceField(choices=[choice[0] for choice in User.ROLE_CHOICES])
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
 
     def validate_role(self, value):
         return str(value).upper()
@@ -298,11 +298,11 @@ class AdminRoleInvitationCreateSerializer(serializers.Serializer):
 
     email = serializers.EmailField()
     role = serializers.ChoiceField(
-        choices=[choice[0] for choice in User.ROLE_CHOICES],
+        choices=User.ROLE_CHOICES,
         required=False,
     )
     roles = serializers.ListField(
-        child=serializers.ChoiceField(choices=[choice[0] for choice in User.ROLE_CHOICES]),
+        child=serializers.ChoiceField(choices=User.ROLE_CHOICES),
         required=False,
         allow_empty=False,
     )
@@ -381,7 +381,7 @@ class AdminRoleInvitationBulkCreateSerializer(serializers.Serializer):
     csv_file = serializers.FileField(required=False)
     csv_text = serializers.CharField(required=False, allow_blank=True)
     default_roles = serializers.ListField(
-        child=serializers.ChoiceField(choices=[choice[0] for choice in User.ROLE_CHOICES]),
+        child=serializers.ChoiceField(choices=User.ROLE_CHOICES),
         required=False,
         allow_empty=False,
     )

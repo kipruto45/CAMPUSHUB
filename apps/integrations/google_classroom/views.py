@@ -6,6 +6,7 @@ import uuid
 
 from django.conf import settings
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -264,6 +265,7 @@ class GoogleClassroomCoursesView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="api_integrations_google_classroom_courses_list")
     def get(self, request):
         """Get all synced courses for the user."""
         try:
@@ -286,6 +288,7 @@ class GoogleClassroomCourseDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="api_integrations_google_classroom_courses_retrieve")
     def get(self, request, course_id):
         """Get details of a specific synced course."""
         try:

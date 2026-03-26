@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
 from .models import Note, NoteShare, NoteVersion, NotePresence, NoteLock
 from .serializers import (
@@ -25,8 +26,11 @@ class NoteViewSet(viewsets.ModelViewSet):
     """ViewSet for note CRUD operations"""
     
     permission_classes = [IsAuthenticated]
+    queryset = Note.objects.none()
     
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Note.objects.none()
         return NoteService.get_note_queryset(self.request.user)
     
     def get_serializer_class(self):
@@ -92,7 +96,21 @@ class NoteViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=True, methods=['delete'], url_path='share/(?P<user_id>[^/.]+)')
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="User ID whose note share should be revoked.",
+            )
+        ]
+    )
+    @action(
+        detail=True,
+        methods=['delete'],
+        url_path='share/(?P<user_id>[0-9a-fA-F-]{36})',
+    )
     def revoke_share(self, request, pk=None, user_id=None):
         """Revoke a user's access to a note"""
         note = self.get_object()
@@ -157,7 +175,21 @@ class NoteViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=True, methods=['post'], url_path='versions/(?P<version_id>[^/.]+)/restore')
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="version_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="Version ID to restore.",
+            )
+        ]
+    )
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='versions/(?P<version_id>[0-9a-fA-F-]{36})/restore',
+    )
     def restore_version(self, request, pk=None, version_id=None):
         """Restore a note to a previous version"""
         note = self.get_object()
@@ -252,6 +284,8 @@ class NoteListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Note.objects.none()
         return NoteService.get_note_queryset(self.request.user).filter(
             status=Note.NoteStatus.PUBLISHED
         )
@@ -274,6 +308,8 @@ class NoteDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Note.objects.none()
         return NoteService.get_note_queryset(self.request.user)
     
     def perform_update(self, serializer):

@@ -1,27 +1,10 @@
 import os
+from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 import pytest
 
 from config.settings import base as base_settings
-
-
-DB_ENV_KEYS = [
-    "DB_NAME",
-    "DB_USER",
-    "DB_PASSWORD",
-    "DB_HOST",
-    "DB_PORT",
-    "POSTGRES_DB",
-    "POSTGRES_USER",
-    "POSTGRES_PASSWORD",
-]
-
-
-def _clear_db_env(monkeypatch):
-    for key in DB_ENV_KEYS:
-        monkeypatch.delenv(key, raising=False)
-
 
 def _patch_config_from_os_env(monkeypatch):
     def _config(key, default="", cast=None):
@@ -56,79 +39,82 @@ def test_database_from_url_rejects_unknown_scheme():
         base_settings._database_from_url("mysql://user:pass@localhost:3306/campus")
 
 
-def test_should_use_postgres_false_without_flags(monkeypatch):
+def test_resolve_default_database_prefers_database_url_when_force_sqlite_disabled(
+    monkeypatch,
+):
     _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.delenv("USE_POSTGRES", raising=False)
-    monkeypatch.delenv("DB_ENGINE", raising=False)
-    assert base_settings._should_use_postgres_in_non_production() is False
-
-
-def test_should_use_postgres_true_with_use_postgres_flag(monkeypatch):
-    _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.setenv("USE_POSTGRES", "true")
-    assert base_settings._should_use_postgres_in_non_production() is True
-
-
-def test_should_use_postgres_true_with_db_engine(monkeypatch):
-    _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.setenv("DB_ENGINE", "postgresql")
-    assert base_settings._should_use_postgres_in_non_production() is True
-
-
-def test_resolve_default_database_prefers_database_url(monkeypatch):
-    _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.setenv("USE_POSTGRES", "true")
-    monkeypatch.setenv("DB_NAME", "ignored_pg_db")
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", False)
 
     resolved = base_settings._resolve_default_database(
-        "development",
-        "sqlite:////tmp/campushub_resolve.sqlite3",
+        "postgresql://user:pass@db.local:5433/campus?sslmode=require"
+    )
+
+    assert resolved["ENGINE"] == "django.db.backends.postgresql"
+    assert resolved["NAME"] == "campus"
+    assert resolved["HOST"] == "db.local"
+    assert resolved["PORT"] == "5433"
+    assert resolved["OPTIONS"]["sslmode"] == "require"
+
+
+def test_resolve_default_database_uses_sqlite_url_when_supplied(monkeypatch):
+    _patch_config_from_os_env(monkeypatch)
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", True)
+
+    resolved = base_settings._resolve_default_database(
+        "sqlite:////tmp/campushub_resolve.sqlite3"
     )
 
     assert resolved["ENGINE"] == "django.db.backends.sqlite3"
     assert resolved["NAME"] == "/tmp/campushub_resolve.sqlite3"
 
 
-def test_resolve_default_database_uses_sqlite_in_development_without_db_env(
+def test_resolve_default_database_uses_sqlite_in_development_without_database_url(
     monkeypatch,
 ):
     _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.delenv("USE_POSTGRES", raising=False)
-    monkeypatch.delenv("DB_ENGINE", raising=False)
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", True)
+    monkeypatch.setattr(base_settings, "ENVIRONMENT", "development")
+    monkeypatch.delenv("SQLITE_PATH", raising=False)
 
-    resolved = base_settings._resolve_default_database("development", "")
+    resolved = base_settings._resolve_default_database("")
 
     assert resolved["ENGINE"] == "django.db.backends.sqlite3"
-    assert str(resolved["NAME"]).endswith("dev_db.sqlite3")
+    assert Path(resolved["NAME"]) == base_settings.BASE_DIR / "db.sqlite3"
 
 
-def test_resolve_default_database_uses_postgres_when_db_env_present(monkeypatch):
+def test_resolve_default_database_respects_sqlite_path(
+    monkeypatch,
+):
     _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
-    monkeypatch.setenv("USE_POSTGRES", "true")
-    monkeypatch.setenv("DB_NAME", "campus_pg")
-    monkeypatch.setenv("DB_USER", "campus_user")
-    monkeypatch.setenv("DB_PASSWORD", "campus_pass")
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", True)
+    monkeypatch.setattr(base_settings, "ENVIRONMENT", "development")
+    monkeypatch.setenv("SQLITE_PATH", "var/test-db.sqlite3")
 
-    resolved = base_settings._resolve_default_database("development", "")
+    resolved = base_settings._resolve_default_database("")
 
-    assert resolved["ENGINE"] == "django.db.backends.postgresql"
-    assert resolved["NAME"] == "campus_pg"
-    assert resolved["USER"] == "campus_user"
-    assert resolved["PASSWORD"] == "campus_pass"
+    assert resolved["ENGINE"] == "django.db.backends.sqlite3"
+    assert Path(resolved["NAME"]) == base_settings.BASE_DIR / "var/test-db.sqlite3"
 
 
-def test_resolve_default_database_uses_postgres_in_production_by_default(monkeypatch):
+def test_resolve_default_database_uses_memory_sqlite_when_configured(monkeypatch):
     _patch_config_from_os_env(monkeypatch)
-    _clear_db_env(monkeypatch)
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", True)
+    monkeypatch.setenv("SQLITE_PATH", ":memory:")
 
-    resolved = base_settings._resolve_default_database("production", "")
+    resolved = base_settings._resolve_default_database("")
 
-    assert resolved["ENGINE"] == "django.db.backends.postgresql"
-    assert resolved["HOST"] == "localhost"
-    assert resolved["PORT"] == "5432"
+    assert resolved == {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
+
+
+def test_resolve_default_database_uses_tmp_sqlite_in_production_without_database_url(
+    monkeypatch,
+):
+    _patch_config_from_os_env(monkeypatch)
+    monkeypatch.setattr(base_settings, "FORCE_SQLITE", True)
+    monkeypatch.setattr(base_settings, "ENVIRONMENT", "production")
+    monkeypatch.delenv("SQLITE_PATH", raising=False)
+
+    resolved = base_settings._resolve_default_database("")
+
+    assert resolved["ENGINE"] == "django.db.backends.sqlite3"
+    assert resolved["NAME"] == "/tmp/campushub.sqlite3"

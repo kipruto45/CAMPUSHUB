@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 
+from config.spectacular import SPECTACULAR_SETTINGS
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENVIRONMENT = config("ENVIRONMENT", default="development").strip().lower()
@@ -800,55 +802,6 @@ else:
     }
 
 ASGI_APPLICATION = "config.asgi.application"
-
-# Spectacular API Documentation
-SPECTACULAR_SETTINGS = {
-    "TITLE": "CampusHub API",
-    "DESCRIPTION": "University Learning Resources Management System API",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    "COMPONENT_SPLIT_REQUEST": True,
-    "TAGS": [
-        {"name": "Authentication", "description": "User authentication endpoints"},
-        {"name": "Users", "description": "User management endpoints"},
-        {"name": "Faculties", "description": "Faculty management endpoints"},
-        {"name": "Departments", "description": "Department management endpoints"},
-        {"name": "Courses", "description": "Course management endpoints"},
-        {"name": "Units", "description": "Unit/Subject management endpoints"},
-        {"name": "Resources", "description": "Learning resource endpoints"},
-        {"name": "Bookmarks", "description": "Resource bookmark endpoints"},
-        {"name": "Comments", "description": "Resource comment endpoints"},
-        {"name": "Ratings", "description": "Resource rating endpoints"},
-        {"name": "Downloads", "description": "Resource download endpoints"},
-        {"name": "Notifications", "description": "Notification endpoints"},
-        {"name": "Search", "description": "Resource search endpoints"},
-        {"name": "Analytics", "description": "Analytics and reporting endpoints"},
-        {"name": "Moderation", "description": "Content moderation endpoints"},
-    ],
-    "SWAGGER_UI_SETTINGS": {
-        "deepLinking": False,
-        "displayRequestDuration": True,
-        "filter": True,
-    },
-    "ENUM_NAME_OVERRIDES": {
-        "ResourceStatusEnum": "apps.resources.models.Resource.STATUS_CHOICES",
-        "ResourceRequestStatusEnum": "apps.resources.models.ResourceRequest.STATUS_CHOICES",
-        "CourseProgressStatusEnum": "apps.resources.models.CourseProgress.STATUS_CHOICES",
-        "ReportStatusEnum": "apps.reports.models.Report.STATUS_CHOICES",
-        "AnnouncementStatusEnum": (
-            "apps.announcements.models.AnnouncementStatus.CHOICES"
-        ),
-        "ProfileStatusEnum": "apps.accounts.models.Profile.STATUS_CHOICES",
-        "TwoFactorVerificationStatusEnum": "apps.two_factor.models.TwoFactorVerification.STATUS_CHOICES",
-        "FriendRequestStatusEnum": "apps.social.models.FriendRequest.STATUS_CHOICES",
-        "StudyGroupStatusEnum": "apps.social.models.StudyGroup.STATUS_CHOICES",
-        "StudyGroupMemberStatusEnum": "apps.social.models.StudyGroupMember.STATUS_CHOICES",
-        "UserSemesterEnum": "apps.accounts.models.User.SEMESTER_CHOICES",
-        "UnitSemesterEnum": "apps.courses.models.Unit.SEMESTER_CHOICES",
-        "UserRoleEnum": "apps.accounts.models.User.ROLE_CHOICES",
-        "StudyGroupMemberRoleEnum": "apps.social.models.StudyGroupMember.ROLE_CHOICES",
-    },
-}
 
 # Logging Configuration
 LOGGING = {

@@ -376,6 +376,7 @@ class StudyGoalListView(APIView):
     permission_classes = [IsAuthenticated]
     
     @extend_schema(
+        operation_id="api_ai_study_goals_list",
         summary="Get Study Goals",
         description="Get all study goals for the current user",
         parameters=[
@@ -444,6 +445,7 @@ class StudyGoalDetailView(APIView):
     permission_classes = [IsAuthenticated]
     
     @extend_schema(
+        operation_id="api_ai_study_goals_retrieve",
         summary="Get Study Goal",
         description="Get details of a specific study goal"
     )

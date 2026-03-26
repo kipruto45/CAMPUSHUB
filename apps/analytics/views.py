@@ -9,7 +9,13 @@ from rest_framework.views import APIView
 from django.db import models
 from django.utils import timezone
 from django.db.models.functions import TruncDay, ExtractHour
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
 from apps.core.permissions import IsAdminOrModerator
@@ -387,24 +393,26 @@ class AtRiskStudentsView(APIView):
     @extend_schema(
         summary="At-risk students",
         parameters=[
-            {
-                "name": "risk_level",
-                "in": "query",
-                "description": "Filter by risk level (low, medium, high, critical)",
-                "schema": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
-            },
-            {
-                "name": "course_id",
-                "in": "query",
-                "description": "Filter by course ID",
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "limit",
-                "in": "query",
-                "description": "Maximum number of results",
-                "schema": {"type": "integer", "default": 50},
-            },
+            OpenApiParameter(
+                name="risk_level",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by risk level (low, medium, high, critical)",
+                enum=["low", "medium", "high", "critical"],
+            ),
+            OpenApiParameter(
+                name="course_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by course ID",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Maximum number of results",
+                default=50,
+            ),
         ],
     )
     def get(self, request, *args, **kwargs):
@@ -434,19 +442,20 @@ class StudentRiskHistoryView(APIView):
     @extend_schema(
         summary="Student risk history",
         parameters=[
-            {
-                "name": "user_id",
-                "in": "query",
-                "description": "User ID to get history for",
-                "schema": {"type": "integer"},
-                "required": True,
-            },
-            {
-                "name": "limit",
-                "in": "query",
-                "description": "Maximum number of records",
-                "schema": {"type": "integer", "default": 30},
-            },
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="User ID to get history for",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Maximum number of records",
+                default=30,
+            ),
         ],
     )
     def get(self, request, *args, **kwargs):
@@ -478,23 +487,26 @@ class ManualRiskAssessmentView(APIView):
 
     @extend_schema(
         summary="Manual risk assessment",
-        request={
-            "type": "object",
-            "properties": {
-                "user_id": {"type": "integer", "description": "User ID to assess"},
-                "course_id": {"type": "string", "description": "Optional course ID"},
+        request=inline_serializer(
+            name="ManualRiskAssessmentRequest",
+            fields={
+                "user_id": serializers.IntegerField(help_text="User ID to assess"),
+                "course_id": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Optional course ID",
+                ),
             },
-            "required": ["user_id"],
-        },
+        ),
         responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "success": {"type": "boolean"},
-                    "message": {"type": "string"},
-                    "assessment": {"type": "object"},
+            200: inline_serializer(
+                name="ManualRiskAssessmentResponse",
+                fields={
+                    "success": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "assessment": serializers.DictField(required=False),
                 },
-            }
+            )
         },
     )
     def post(self, request, *args, **kwargs):

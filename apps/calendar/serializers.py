@@ -68,7 +68,7 @@ class TimetableSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_instructor_name(self, obj):
+    def get_instructor_name(self, obj) -> str | None:
         if obj.instructor:
             return obj.instructor.get_full_name() or obj.instructor.email
         return None

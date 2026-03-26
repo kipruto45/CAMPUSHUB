@@ -23,10 +23,15 @@ class TestAuthentication:
         }
         response = api_client.post(url, data, format='json')
         assert response.status_code == status.HTTP_201_CREATED
-        assert 'access' in response.data
+        assert response.data['requires_email_verification'] is True
+        assert response.data['access'] is None
+        assert response.data['refresh'] is None
 
     def test_user_login(self, api_client, user):
         """Test user login."""
+        user.is_verified = True
+        user.save(update_fields=['is_verified'])
+
         url = reverse('accounts:login')
         data = {
             'email': 'student@test.com',
@@ -48,6 +53,9 @@ class TestAuthentication:
 
     def test_token_refresh(self, api_client, user):
         """Test token refresh."""
+        user.is_verified = True
+        user.save(update_fields=['is_verified'])
+
         # First login to get refresh token
         login_url = reverse('accounts:login')
         login_data = {

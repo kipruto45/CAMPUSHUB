@@ -3,6 +3,7 @@ Django development settings.
 """
 
 from .base import *  # noqa: F401, F403
+from config.spectacular import SPECTACULAR_SETTINGS
 
 DEBUG = True
 

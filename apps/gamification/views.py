@@ -2,6 +2,7 @@
 Gamification views for API endpoints.
 """
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -196,6 +197,9 @@ def check_badges(request, *args, **kwargs):
     )
 
 
+@extend_schema_view(
+    retrieve=extend_schema(operation_id="api_gamification_category_retrieve")
+)
 class PointCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for point categories."""
 
@@ -204,6 +208,9 @@ class PointCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
+@extend_schema_view(
+    retrieve=extend_schema(operation_id="api_gamification_action_retrieve")
+)
 class PointActionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for point actions."""
 
@@ -212,6 +219,9 @@ class PointActionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
 
+@extend_schema_view(
+    retrieve=extend_schema(operation_id="api_gamification_badge_retrieve")
+)
 class BadgeViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for badges."""
 
@@ -432,6 +442,7 @@ def award_points(request):
         )
 
 
+@extend_schema(operation_id="api_gamification_categories_list")
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def get_point_categories(request):
@@ -441,6 +452,7 @@ def get_point_categories(request):
     return Response(serializer.data)
 
 
+@extend_schema(operation_id="api_gamification_actions_list")
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def get_point_actions(request):
@@ -450,6 +462,7 @@ def get_point_actions(request):
     return Response(serializer.data)
 
 
+@extend_schema(operation_id="api_gamification_badges_list")
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def get_all_badges(request):
