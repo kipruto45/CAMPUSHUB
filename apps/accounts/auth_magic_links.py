@@ -175,13 +175,10 @@ class MagicLinkService:
         request_base_url: Optional[str] = None,
     ) -> str:
         query = urlencode({"token": token})
-        if request_base_url:
-            consume_path = reverse("accounts:magic-link-consume")
-            return f"{str(request_base_url).rstrip('/')}{consume_path}?{query}"
-
         frontend_base = (
-            str(getattr(settings, "FRONTEND_URL", "") or "").strip()
-            or str(getattr(settings, "FRONTEND_BASE_URL", "") or "").strip()
+            str(getattr(settings, "FRONTEND_BASE_URL", "") or "").strip()
+            or str(getattr(settings, "FRONTEND_URL", "") or "").strip()
+            or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "") or "").strip()
             or str(getattr(settings, "WEB_APP_URL", "") or "").strip()
         ).rstrip("/")
 
@@ -194,7 +191,13 @@ class MagicLinkService:
         if deeplink_scheme:
             return f"{deeplink_scheme}://magic-link?{query}"
 
-        return f"https://campushub.app/magic-link?{query}"
+        consume_path = reverse("accounts:magic-link-consume")
+        backend_base = str(getattr(settings, "BASE_URL", "") or "").strip().rstrip("/")
+        if backend_base:
+            return f"{backend_base}{consume_path}?{query}"
+        if request_base_url:
+            return f"{str(request_base_url).rstrip('/')}{consume_path}?{query}"
+        return f"{consume_path}?{query}"
 
     def _send_magic_link_email(
         self,

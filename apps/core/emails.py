@@ -5,6 +5,7 @@ Provides email sending capabilities with templates.
 
 import logging
 from typing import List, Optional
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
@@ -14,18 +15,134 @@ from django.utils.html import strip_tags
 logger = logging.getLogger(__name__)
 
 
+def get_configured_frontend_base_url() -> str:
+    """Return only explicitly configured frontend/app host values."""
+    return (
+        getattr(settings, "FRONTEND_BASE_URL", "")
+        or getattr(settings, "FRONTEND_URL", "")
+        or getattr(settings, "RESOURCE_SHARE_BASE_URL", "")
+        or getattr(settings, "WEB_APP_URL", "")
+    ).rstrip("/")
+
+
 def get_frontend_base_url() -> str:
     """
     Get the frontend base URL from settings.
     Falls back to multiple settings for compatibility.
     """
     return (
-        getattr(settings, "FRONTEND_BASE_URL", "")
-        or getattr(settings, "FRONTEND_URL", "")
-        or getattr(settings, "RESOURCE_SHARE_BASE_URL", "")
-        or getattr(settings, "WEB_APP_URL", "")
-        or "https://my-cham-a.app"  # Default fallback
+        get_configured_frontend_base_url()
+        or getattr(settings, "BASE_URL", "")
     ).rstrip("/")
+
+
+def get_backend_base_url() -> str:
+    """Get the backend/site base URL for absolute server-hosted links."""
+    return str(getattr(settings, "BASE_URL", "") or "").strip().rstrip("/")
+
+
+def get_site_name() -> str:
+    """Return the configured site name with a safe default."""
+    return str(getattr(settings, "SITE_NAME", "") or "CampusHub").strip()
+
+
+def get_mobile_deeplink_scheme() -> str:
+    """Return the configured mobile deeplink scheme."""
+    return str(getattr(settings, "MOBILE_DEEPLINK_SCHEME", "") or "").strip()
+
+
+def build_mailto_url(email: str = "") -> str:
+    """Build a mailto URL when an email address is available."""
+    normalized = str(email or "").strip()
+    return f"mailto:{normalized}" if normalized else ""
+
+
+def _encode_query(query: Optional[dict]) -> str:
+    if not query:
+        return ""
+    return urlencode({key: value for key, value in query.items() if value is not None})
+
+
+def build_frontend_url(path: str = "", query: Optional[dict] = None) -> str:
+    """Build an absolute frontend/web URL."""
+    base = get_configured_frontend_base_url()
+    if not base:
+        return ""
+    normalized_path = str(path or "").strip()
+    if normalized_path and not normalized_path.startswith("/"):
+        normalized_path = f"/{normalized_path}"
+    url = f"{base}{normalized_path}"
+    encoded_query = _encode_query(query)
+    return f"{url}?{encoded_query}" if encoded_query else url
+
+
+def build_backend_url(path: str = "", query: Optional[dict] = None) -> str:
+    """Build an absolute backend URL."""
+    base = get_backend_base_url()
+    if not base:
+        return ""
+    normalized_path = str(path or "").strip()
+    if normalized_path and not normalized_path.startswith("/"):
+        normalized_path = f"/{normalized_path}"
+    url = f"{base}{normalized_path}"
+    encoded_query = _encode_query(query)
+    return f"{url}?{encoded_query}" if encoded_query else url
+
+
+def build_mobile_deeplink(path: str = "", query: Optional[dict] = None) -> str:
+    """Build a mobile deeplink to the Expo app."""
+    scheme = get_mobile_deeplink_scheme()
+    if not scheme:
+        return ""
+    normalized_path = str(path or "").strip().lstrip("/")
+    base = f"{scheme}://{normalized_path}" if normalized_path else f"{scheme}://"
+    encoded_query = _encode_query(query)
+    return f"{base}?{encoded_query}" if encoded_query else base
+
+
+def build_app_url(
+    *,
+    web_path: str = "",
+    mobile_path: Optional[str] = None,
+    query: Optional[dict] = None,
+    fallback_path: str = "",
+    mobile_query: Optional[dict] = None,
+    fallback_query: Optional[dict] = None,
+) -> str:
+    """
+    Build a user-facing URL for email links.
+    Prefers frontend URLs, then mobile deeplinks, then backend URLs.
+    """
+    frontend_url = build_frontend_url(web_path, query=query)
+    if frontend_url:
+        return frontend_url
+
+    deeplink = build_mobile_deeplink(
+        mobile_path or web_path,
+        query=mobile_query if mobile_query is not None else query,
+    )
+    if deeplink:
+        return deeplink
+
+    if fallback_path:
+        return build_backend_url(
+            fallback_path,
+            query=fallback_query if fallback_query is not None else query,
+        )
+    return ""
+
+
+def build_public_resource_url(resource) -> str:
+    """Build a canonical resource URL for emails and sharing."""
+    identifier = str(getattr(resource, "slug", "") or getattr(resource, "id", "") or "").strip()
+    if not identifier:
+        return ""
+    base = (
+        str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "") or "").strip().rstrip("/")
+        or get_frontend_base_url()
+        or get_backend_base_url()
+    )
+    return f"{base}/resources/{identifier}" if base else f"/resources/{identifier}"
 
 
 class EmailService:
@@ -143,17 +260,21 @@ class UserEmailService:
     @staticmethod
     def _build_support_links() -> dict:
         """Build optional web/help/contact links for email templates."""
-        frontend_url = get_frontend_base_url()
-        if not frontend_url:
-            return {
-                "website_url": "",
-                "help_center_url": "",
-                "contact_url": "",
-            }
+        support_email = str(getattr(settings, "SUPPORT_EMAIL", "") or "").strip()
         return {
-            "website_url": frontend_url,
-            "help_center_url": f"{frontend_url}/help",
-            "contact_url": f"{frontend_url}/contact",
+            "website_url": get_frontend_base_url(),
+            "help_center_url": build_app_url(
+                web_path="/help",
+                mobile_path="help",
+                fallback_path="/api/docs/",
+            ),
+            "contact_url": (
+                build_app_url(
+                    web_path="/contact-support",
+                    mobile_path="contact-support",
+                )
+                or build_mailto_url(support_email)
+            ),
         }
 
     @staticmethod
@@ -178,12 +299,16 @@ class UserEmailService:
         """
         from apps.accounts.verification import generate_signed_verification_token
 
-        frontend_url = get_frontend_base_url()
-        site_name = getattr(settings, "SITE_NAME", "CampusHub")
+        site_name = get_site_name()
         if not verification_url:
             if not verification_token:
                 verification_token = generate_signed_verification_token(user)
-            verification_url = f"{frontend_url}/verify-email/{verification_token}"
+            verification_url = build_app_url(
+                web_path=f"/verify-email/{verification_token}",
+                mobile_path="verify-email",
+                fallback_path=f"/api/auth/verify-email/{verification_token}/",
+                mobile_query={"token": verification_token},
+            )
 
         return EmailService.send_template_email(
             template_name="welcome",
@@ -210,15 +335,19 @@ class UserEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        reset_url = f"{frontend_url}/password-reset/{reset_token}"
+        reset_url = build_app_url(
+            web_path=f"/password-reset/{reset_token}",
+            mobile_path="reset-password",
+            fallback_path=f"/api/auth/password/reset/confirm/{reset_token}/",
+            mobile_query={"token": reset_token},
+        )
 
         return EmailService.send_template_email(
             template_name="password_reset",
             context={
                 "user": user,
                 "reset_url": reset_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject="Password Reset Request",
             recipient_list=[user.email],
@@ -239,7 +368,7 @@ class UserEmailService:
             template_name="password_changed",
             context={
                 "user": user,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject="Password Changed Successfully",
             recipient_list=[user.email],
@@ -267,12 +396,16 @@ class UserEmailService:
         """
         from apps.accounts.verification import generate_signed_verification_token
 
-        frontend_url = get_frontend_base_url()
-        site_name = getattr(settings, "SITE_NAME", "CampusHub")
+        site_name = get_site_name()
         if not verification_url:
             if not verification_token:
                 verification_token = generate_signed_verification_token(user)
-            verification_url = f"{frontend_url}/verify-email/{verification_token}"
+            verification_url = build_app_url(
+                web_path=f"/verify-email/{verification_token}",
+                mobile_path="verify-email",
+                fallback_path=f"/api/auth/verify-email/{verification_token}/",
+                mobile_query={"token": verification_token},
+            )
 
         return EmailService.send_template_email(
             template_name="email_verification",
@@ -304,8 +437,7 @@ class ResourceEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        resource_url = f"{frontend_url}/resources/{resource.id}"
+        resource_url = build_public_resource_url(resource)
 
         return EmailService.send_template_email(
             template_name="resource_approved",
@@ -313,7 +445,7 @@ class ResourceEmailService:
                 "user": user,
                 "resource": resource,
                 "resource_url": resource_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject="Your Resource Has Been Approved",
             recipient_list=[user.email],
@@ -332,8 +464,11 @@ class ResourceEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        upload_url = f"{frontend_url}/upload-resource"
+        upload_url = build_app_url(
+            web_path="/upload-resource",
+            mobile_path="upload-resource",
+            fallback_path="/api/docs/",
+        )
         
         return EmailService.send_template_email(
             template_name="resource_rejected",
@@ -342,7 +477,7 @@ class ResourceEmailService:
                 "resource": resource,
                 "reason": reason,
                 "upload_url": upload_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject="Your Resource Has Been Rejected",
             recipient_list=[user.email],
@@ -365,7 +500,7 @@ class ResourceEmailService:
             context={
                 "user": user,
                 "resource": resource,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject="Resource Uploaded Successfully",
             recipient_list=[user.email],
@@ -389,15 +524,14 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        profile_url = f"{frontend_url}/admin/accounts/user/{user.id}/change/"
+        profile_url = build_backend_url(f"/admin/accounts/user/{user.id}/change/")
 
         return EmailService.send_template_email(
             template_name="admin_new_user",
             context={
                 "user": user,
                 "profile_url": profile_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"New User Registration: {user.email}",
             recipient_list=[admin_email],
@@ -415,15 +549,14 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        report_url = f"{frontend_url}/admin/reports/report/{report.id}/change/"
+        report_url = build_backend_url(f"/admin/reports/report/{report.id}/change/")
 
         return EmailService.send_template_email(
             template_name="admin_new_report",
             context={
                 "report": report,
                 "report_url": report_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"New Report: {report.get_reason_type_display()}",
             recipient_list=[admin_email],
@@ -444,15 +577,14 @@ class AdminEmailService:
         if count == 0:
             return False
 
-        frontend_url = get_frontend_base_url()
-        moderation_url = f"{frontend_url}/admin/moderation/"
+        moderation_url = build_backend_url("/admin/resources/resource/")
 
         return EmailService.send_template_email(
             template_name="admin_pending_resources",
             context={
                 "count": count,
                 "moderation_url": moderation_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"{count} Resources Pending Review",
             recipient_list=[admin_email],
@@ -470,8 +602,7 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        resource_url = f"{frontend_url}/resources/{resource.slug}/"
+        resource_url = build_public_resource_url(resource)
 
         return EmailService.send_template_email(
             template_name="resource_approved",
@@ -479,7 +610,7 @@ class AdminEmailService:
                 "user": user,
                 "resource": resource,
                 "resource_url": resource_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"Your resource '{resource.title}' has been approved!",
             recipient_list=[user.email],
@@ -498,8 +629,11 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        upload_url = f"{frontend_url}/upload/"
+        upload_url = build_app_url(
+            web_path="/upload-resource",
+            mobile_path="upload-resource",
+            fallback_path="/api/docs/",
+        )
 
         return EmailService.send_template_email(
             template_name="resource_rejected",
@@ -508,7 +642,7 @@ class AdminEmailService:
                 "resource": resource,
                 "reason": reason,
                 "upload_url": upload_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"Your resource '{resource.title}' was not approved",
             recipient_list=[user.email],
@@ -529,8 +663,7 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        moderation_url = f"{frontend_url}/admin/resources/"
+        moderation_url = build_backend_url("/admin/resources/resource/")
 
         return EmailService.send_template_email(
             template_name="admin_bulk_action",
@@ -540,7 +673,7 @@ class AdminEmailService:
                 "success_count": success_count,
                 "failed_count": failed_count,
                 "moderation_url": moderation_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"Bulk {action.title()} Completed: {success_count}/{count} successful",
             recipient_list=[admin_email],
@@ -559,8 +692,7 @@ class AdminEmailService:
         Returns:
             True if email was sent
         """
-        frontend_url = get_frontend_base_url()
-        settings_url = f"{frontend_url}/admin/settings/"
+        settings_url = build_backend_url("/admin/")
 
         return EmailService.send_template_email(
             template_name="admin_storage_warning",
@@ -568,7 +700,7 @@ class AdminEmailService:
                 "storage_percent": storage_percent,
                 "storage_used_gb": storage_used_gb,
                 "settings_url": settings_url,
-                "site_name": settings.SITE_NAME,
+                "site_name": get_site_name(),
             },
             subject=f"Storage Warning: {storage_percent}% Used",
             recipient_list=[admin_email],
@@ -631,7 +763,7 @@ class AdminEmailService:
                     context={
                         "user": user,
                         "campaign": campaign,
-                        "site_name": settings.SITE_NAME,
+                        "site_name": get_site_name(),
                     },
                     subject=campaign.subject,
                     recipient_list=[user.email],

@@ -1964,6 +1964,8 @@ def _build_frontend_or_api_link(request, frontend_path: str, api_path: str) -> s
     frontend_base = str(
         getattr(settings, "FRONTEND_BASE_URL", "")
         or getattr(settings, "FRONTEND_URL", "")
+        or getattr(settings, "RESOURCE_SHARE_BASE_URL", "")
+        or getattr(settings, "WEB_APP_URL", "")
         or ""
     ).rstrip("/")
     if frontend_base:

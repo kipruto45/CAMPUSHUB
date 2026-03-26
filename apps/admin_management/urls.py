@@ -214,6 +214,7 @@ urlpatterns = [
     path("gamification/award-points/", views.AdminAwardPointsView.as_view(), name="award-points"),
     
     # Email Campaign Management
+    path("communications/send/", views.AdminCommunicationSendView.as_view(), name="communications-send"),
     path("email-campaigns/", views.AdminEmailCampaignListView.as_view(), name="campaign-list"),
     path("email-campaigns/create/", views.AdminEmailCampaignCreateView.as_view(), name="campaign-create"),
     path("email-campaigns/<uuid:campaign_id>/", views.AdminEmailCampaignDetailView.as_view(), name="campaign-detail"),

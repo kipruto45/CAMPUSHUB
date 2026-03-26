@@ -36,3 +36,5 @@ services:
         value: https://my-cham-a.app
       - key: RESOURCE_SHARE_BASE_URL
         value: https://my-cham-a.app
+      - key: BASE_URL
+        value: https://campushub-api.onrender.com

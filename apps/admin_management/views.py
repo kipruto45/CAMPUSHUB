@@ -37,6 +37,7 @@ from apps.admin_management.serializers import (
     AdminAPIKeySerializer,
     AdminAPIKeyUpdateSerializer,
     AdminContentCalendarEventSerializer,
+    AdminCommunicationSendSerializer,
     AdminDashboardSerializer, AdminDepartmentSerializer,
     AdminInvitationBatchSerializer,
     AdminIncidentSerializer,
@@ -85,6 +86,7 @@ from apps.admin_management.services import (announcement_lifecycle_action,
                                             create_role_invitation,
                                             revoke_role_invitation,
                                             review_resource,
+                                            send_admin_communication,
                                             validate_role_invitation_token,
                                             update_report_status,
                                             update_user_role,
@@ -1847,6 +1849,49 @@ class AdminAwardPointsView(APIView):
             'message': f'Successfully awarded {points} points to {user.email}',
             'new_total': stats.total_points,
         })
+
+
+# ===========================================
+# ADMIN COMMUNICATIONS
+# ===========================================
+
+class AdminCommunicationSendView(APIView):
+    """Send multi-channel communications to a filtered user audience."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @extend_schema(
+        operation_id="admin_communications_send",
+        tags=["Admin Communications"],
+        request=AdminCommunicationSendSerializer,
+    )
+    def post(self, request):
+        serializer = AdminCommunicationSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = send_admin_communication(
+                actor=request.user,
+                title=serializer.validated_data["title"],
+                email_subject=serializer.validated_data.get("email_subject", ""),
+                message=serializer.validated_data["message"],
+                sms_message=serializer.validated_data.get("sms_message", ""),
+                link=serializer.validated_data.get("link", ""),
+                campaign_name=serializer.validated_data.get("campaign_name", ""),
+                channels=serializer.validated_data.get("channels", []),
+                target_faculty_ids=serializer.validated_data.get("target_faculties", []),
+                target_department_ids=serializer.validated_data.get("target_departments", []),
+                target_course_ids=serializer.validated_data.get("target_courses", []),
+                target_year_of_study=serializer.validated_data.get("target_year_of_study"),
+                target_user_roles=serializer.validated_data.get("target_user_roles", []),
+            )
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
 
 
 # ===========================================

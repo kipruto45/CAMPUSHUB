@@ -317,13 +317,44 @@ class TestMobilePasswordReset:
 
 @pytest.mark.django_db
 class TestMagicLink:
-    def test_magic_link_request_returns_200(self, api_client, test_user, mailoutbox):
+    def test_magic_link_request_returns_backend_consume_url_when_frontend_missing(
+        self,
+        api_client,
+        test_user,
+        mailoutbox,
+        settings,
+    ):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+
         url = reverse("accounts:magic-link-request")
         resp = api_client.post(url, {"email": test_user.email})
         assert resp.status_code == status.HTTP_200_OK
         assert len(mailoutbox) == 1
         assert mailoutbox[0].subject == "Your CampusHub Magic Link"
         assert "/api/auth/magic-link/consume/?token=" in mailoutbox[0].body
+
+    def test_magic_link_request_prefers_frontend_magic_link_route(
+        self,
+        api_client,
+        test_user,
+        mailoutbox,
+        settings,
+    ):
+        settings.FRONTEND_BASE_URL = "https://app.campushub.example"
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+
+        url = reverse("accounts:magic-link-request")
+        resp = api_client.post(url, {"email": test_user.email})
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(mailoutbox) == 1
+        assert "https://app.campushub.example/magic-link?token=" in mailoutbox[0].body
 
     def test_magic_link_consume_screen_renders(self, api_client):
         url = reverse("accounts:magic-link-consume")

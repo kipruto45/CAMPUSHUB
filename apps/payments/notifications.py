@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.utils.html import strip_tags
 
-from apps.core.emails import EmailService, get_frontend_base_url
+from apps.core.emails import EmailService, build_app_url
 from apps.payments.receipts import attach_receipt_to_email, get_receipt_url_for_sms
 
 logger = logging.getLogger(__name__)
@@ -53,8 +53,6 @@ class PaymentNotificationService:
         try:
             from django.core.mail import EmailMultiAlternatives
             
-            base_url = get_frontend_base_url()
-            
             # Generate receipt URL for SMS links
             receipt_url = None
             if payment:
@@ -66,7 +64,11 @@ class PaymentNotificationService:
                 "currency": currency,
                 "payment_type": payment_type.replace("_", " ").title(),
                 "payment_id": payment_id,
-                "billing_url": f"{base_url}/settings/billing/",
+                "billing_url": build_app_url(
+                    web_path="/billing",
+                    mobile_path="billing",
+                    fallback_path="/api/payments/payments/",
+                ),
                 "receipt_url": receipt_url,
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
@@ -162,15 +164,17 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "amount": amount,
                 "currency": currency,
                 "payment_type": payment_type.replace("_", " ").title(),
                 "reason": reason or "Unknown error",
-                "retry_url": f"{base_url}/settings/billing/payment-failed/",
+                "retry_url": build_app_url(
+                    web_path="/billing/pay",
+                    mobile_path="billing/pay",
+                    fallback_path="/api/payments/plans/",
+                ),
                 "support_email": getattr(settings, "SUPPORT_EMAIL", "support@campushub.com"),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
@@ -212,8 +216,11 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-            renewal_url = renewal_url or f"{base_url}/settings/billing/"
+            renewal_url = renewal_url or build_app_url(
+                web_path="/billing/plans",
+                mobile_path="billing/plans",
+                fallback_path="/api/payments/plans/",
+            )
 
             context = {
                 "user": user,
@@ -284,8 +291,11 @@ class PaymentNotificationService:
             return False
 
         try:
-            base_url = get_frontend_base_url()
-            upgrade_url = upgrade_url or f"{base_url}/settings/billing/"
+            upgrade_url = upgrade_url or build_app_url(
+                web_path="/billing/plans",
+                mobile_path="billing/plans",
+                fallback_path="/api/payments/plans/",
+            )
             context = {
                 "user": user,
                 "plan_name": plan_name,
@@ -348,15 +358,17 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "amount": amount,
                 "currency": currency,
                 "due_date": due_date,
                 "description": description or "Pending payment",
-                "payment_url": f"{base_url}/settings/billing/payment/",
+                "payment_url": build_app_url(
+                    web_path="/billing/pay",
+                    mobile_path="billing/pay",
+                    fallback_path="/api/payments/plans/",
+                ),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
 
@@ -434,15 +446,17 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "amount": amount,
                 "currency": currency,
                 "payment_id": payment_id,
                 "reason": reason or "No reason provided",
-                "billing_url": f"{base_url}/settings/billing/",
+                "billing_url": build_app_url(
+                    web_path="/billing/history",
+                    mobile_path="billing/history",
+                    fallback_path="/api/payments/payments/",
+                ),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
 
@@ -498,15 +512,17 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "plan_name": plan_name,
                 "billing_period": billing_period,
                 "amount": amount,
                 "currency": currency,
-                "billing_url": f"{base_url}/settings/billing/",
+                "billing_url": build_app_url(
+                    web_path="/billing",
+                    mobile_path="billing",
+                    fallback_path="/api/payments/subscription/",
+                ),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
 
@@ -545,13 +561,15 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "plan_name": plan_name,
                 "expiration_date": expiration_date,
-                "reactivate_url": f"{base_url}/settings/billing/reactivate/",
+                "reactivate_url": build_app_url(
+                    web_path="/billing/plans",
+                    mobile_path="billing/plans",
+                    fallback_path="/api/payments/plans/",
+                ),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
 
@@ -594,15 +612,17 @@ class PaymentNotificationService:
             True if email sent successfully
         """
         try:
-            base_url = get_frontend_base_url()
-
             context = {
                 "user": user,
                 "storage_gb": storage_gb,
                 "duration_days": duration_days,
                 "amount": amount,
                 "currency": currency,
-                "storage_url": f"{base_url}/settings/storage/",
+                "storage_url": build_app_url(
+                    web_path="/storage",
+                    mobile_path="storage",
+                    fallback_path="/api/payments/storage/",
+                ),
                 "date": timezone.now().strftime("%B %d, %Y"),
             }
 

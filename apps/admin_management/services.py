@@ -25,7 +25,12 @@ from apps.admin_management.models import (
 from apps.announcements.models import Announcement
 from apps.bookmarks.models import Bookmark
 from apps.comments.models import Comment
-from apps.core.emails import EmailService
+from apps.core.emails import (
+    AdminEmailService,
+    EmailService,
+    build_backend_url,
+)
+from apps.core.sms import get_sms_configuration_status, sms_service
 from apps.courses.models import Course, Unit
 from apps.downloads.models import Download
 from apps.faculties.models import Department, Faculty
@@ -237,11 +242,14 @@ DEFAULT_ROLE_INVITATION_BODY = (
     "You've been invited to join {site_name} with the following roles: {role_names_csv}.\n\n"
     "Invited by: {invited_by_name}\n"
     "Invitation email: {invitee_email}\n"
+    "Invitation code: {invite_code}\n"
     "{note_block}"
     "Accept invitation: {landing_url}\n"
     "{app_url_block}"
     "This invitation expires on {expires_at}.\n"
 )
+
+COMMUNICATION_CHANNELS = ("email", "in_app", "sms")
 
 
 def _normalize_email(value: str) -> str:
@@ -423,6 +431,8 @@ def _build_role_invitation_context(
         "roles_count": len(role_names),
         "note": note,
         "note_block": f"Note: {note}\n" if note else "",
+        "invite_code": invitation.token,
+        "invite_token": invitation.token,
         "landing_url": landing_url,
         "accept_url": landing_url,
         "app_url": app_url,
@@ -491,24 +501,33 @@ def build_role_invitation_landing_url(request, token: str) -> str:
         return request.build_absolute_uri(path)
 
     frontend_base = (
-        str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+        str(getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
+        or str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
         or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "") or "").rstrip("/")
         or str(getattr(settings, "WEB_APP_URL", "") or "").rstrip("/")
     )
-    return f"{frontend_base}{path}" if frontend_base else path
+    if frontend_base:
+        return f"{frontend_base}{path}"
+
+    backend_url = build_backend_url(path)
+    return backend_url or path
 
 
 def build_role_invitation_client_url(token: str) -> str:
     """Build the preferred app/web destination for an invitation token."""
     frontend_base = (
-        str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+        str(getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
+        or str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
         or str(getattr(settings, "RESOURCE_SHARE_BASE_URL", "") or "").rstrip("/")
         or str(getattr(settings, "WEB_APP_URL", "") or "").rstrip("/")
     )
     query = urlencode({"token": token})
     if frontend_base:
         return f"{frontend_base}/role-invite?{query}" if query else f"{frontend_base}/role-invite"
-    return _build_mobile_role_invite_link(token)
+    app_url = _build_mobile_role_invite_link(token)
+    if app_url:
+        return app_url
+    return build_role_invitation_landing_url(None, token)
 
 
 def send_role_invitation_email(*, invitation: AdminRoleInvitation, request=None) -> bool:
@@ -545,6 +564,228 @@ def send_role_invitation_email(*, invitation: AdminRoleInvitation, request=None)
             },
         )
     return sent
+
+
+def _build_admin_target_filters(
+    *,
+    target_faculty_ids=None,
+    target_department_ids=None,
+    target_course_ids=None,
+    target_year_of_study=None,
+    target_user_roles=None,
+) -> dict:
+    target_filters = {}
+    if target_faculty_ids:
+        target_filters["faculty_ids"] = list(target_faculty_ids)
+    if target_department_ids:
+        target_filters["department_ids"] = list(target_department_ids)
+    if target_course_ids:
+        target_filters["course_ids"] = list(target_course_ids)
+    if target_year_of_study:
+        target_filters["year_of_study"] = int(target_year_of_study)
+    if target_user_roles:
+        target_filters["user_roles"] = [
+            _normalize_role_code(role_code) for role_code in target_user_roles
+        ]
+    return target_filters
+
+
+def get_admin_communication_recipients(
+    *,
+    target_faculty_ids=None,
+    target_department_ids=None,
+    target_course_ids=None,
+    target_year_of_study=None,
+    target_user_roles=None,
+):
+    """Return active users targeted for an admin communication."""
+    queryset = User.objects.filter(is_active=True)
+    filters = Q()
+    has_filters = False
+
+    if target_faculty_ids:
+        filters &= Q(faculty_id__in=target_faculty_ids)
+        has_filters = True
+    if target_department_ids:
+        filters &= Q(department_id__in=target_department_ids)
+        has_filters = True
+    if target_course_ids:
+        filters &= Q(course_id__in=target_course_ids)
+        has_filters = True
+    if target_year_of_study:
+        filters &= Q(year_of_study=target_year_of_study)
+        has_filters = True
+    if target_user_roles:
+        normalized_roles = [
+            _normalize_role_code(role_code) for role_code in target_user_roles
+        ]
+        filters &= Q(role__in=normalized_roles)
+        has_filters = True
+
+    if has_filters:
+        queryset = queryset.filter(filters)
+    return queryset.select_related("faculty", "department", "course").distinct()
+
+
+def send_admin_communication(
+    *,
+    actor: User,
+    title: str,
+    message: str,
+    channels,
+    email_subject: str = "",
+    sms_message: str = "",
+    link: str = "",
+    campaign_name: str = "",
+    target_faculty_ids=None,
+    target_department_ids=None,
+    target_course_ids=None,
+    target_year_of_study=None,
+    target_user_roles=None,
+) -> dict:
+    """Send a multi-channel admin communication to a targeted audience."""
+    from apps.core.models import EmailCampaign
+    from apps.notifications.models import NotificationType
+
+    normalized_channels = _dedupe_keep_order(
+        str(channel or "").strip().lower() for channel in (channels or [])
+    )
+    normalized_channels = [
+        channel for channel in normalized_channels if channel in COMMUNICATION_CHANNELS
+    ]
+    if not normalized_channels:
+        raise ValueError("Select at least one communication channel.")
+
+    recipient_queryset = get_admin_communication_recipients(
+        target_faculty_ids=target_faculty_ids,
+        target_department_ids=target_department_ids,
+        target_course_ids=target_course_ids,
+        target_year_of_study=target_year_of_study,
+        target_user_roles=target_user_roles,
+    )
+    recipients = list(recipient_queryset)
+    if not recipients:
+        raise ValueError("No active users matched the selected audience.")
+
+    target_filters = _build_admin_target_filters(
+        target_faculty_ids=target_faculty_ids,
+        target_department_ids=target_department_ids,
+        target_course_ids=target_course_ids,
+        target_year_of_study=target_year_of_study,
+        target_user_roles=target_user_roles,
+    )
+
+    channel_results = {}
+
+    if "email" in normalized_channels:
+        subject = (email_subject or title).strip()
+        campaign = EmailCampaign.objects.create(
+            name=(campaign_name or title).strip() or "Admin communication",
+            subject=subject,
+            body=message,
+            campaign_type="announcement",
+            target_filters=target_filters,
+            recipient_count=len(recipients),
+            created_by=actor,
+        )
+        try:
+            email_result = AdminEmailService.send_campaign_emails(campaign.id)
+            channel_results["email"] = {
+                "campaign_id": str(campaign.id),
+                "sent_count": int(email_result.get("sent_count", 0)),
+                "failed_count": int(email_result.get("failed_count", 0)),
+            }
+        except Exception as exc:
+            campaign.status = "failed"
+            campaign.failed_count = len(recipients)
+            campaign.save(update_fields=["status", "failed_count", "updated_at"])
+            channel_results["email"] = {
+                "campaign_id": str(campaign.id),
+                "sent_count": 0,
+                "failed_count": len(recipients),
+                "error": str(exc),
+            }
+
+    if "in_app" in normalized_channels:
+        sent_count = 0
+        failed_count = 0
+        for recipient in recipients:
+            try:
+                NotificationService.create_notification(
+                    recipient=recipient,
+                    title=title,
+                    message=message,
+                    notification_type=NotificationType.ANNOUNCEMENT,
+                    link=link,
+                )
+                sent_count += 1
+            except Exception:
+                failed_count += 1
+        channel_results["in_app"] = {
+            "sent_count": sent_count,
+            "failed_count": failed_count,
+        }
+
+    if "sms" in normalized_channels:
+        sms_status = get_sms_configuration_status()
+        sms_text = (sms_message or message).strip()
+        if not sms_status.get("configured"):
+            channel_results["sms"] = {
+                "sent_count": 0,
+                "failed_count": 0,
+                "skipped_count": len(recipients),
+                "error": sms_status.get("message", "SMS provider is not configured."),
+            }
+        else:
+            sent_count = 0
+            failed_count = 0
+            skipped_count = 0
+            seen_numbers = set()
+
+            for recipient in recipients:
+                phone_number = str(
+                    getattr(recipient, "phone_number", "")
+                    or getattr(recipient, "phone", "")
+                    or ""
+                ).strip()
+                if not phone_number or phone_number in seen_numbers:
+                    skipped_count += 1
+                    continue
+
+                seen_numbers.add(phone_number)
+                result = sms_service.send(phone_number, sms_text)
+                if result.get("success"):
+                    sent_count += 1
+                else:
+                    failed_count += 1
+
+            channel_results["sms"] = {
+                "sent_count": sent_count,
+                "failed_count": failed_count,
+                "skipped_count": skipped_count,
+            }
+
+    log_admin_activity(
+        admin=actor,
+        action="admin_communication_sent",
+        target_type="communication",
+        target_id=title[:64] or "communication",
+        target_title=title[:255],
+        metadata={
+            "channels": normalized_channels,
+            "recipient_count": len(recipients),
+            "target_filters": target_filters,
+            "channel_results": channel_results,
+        },
+    )
+
+    return {
+        "message": "Communication sent successfully.",
+        "recipient_count": len(recipients),
+        "channels": normalized_channels,
+        "target_filters": target_filters,
+        "channel_results": channel_results,
+    }
 
 
 def _active_role_invitation_queryset():

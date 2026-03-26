@@ -205,6 +205,7 @@ class AdminInvitationBatchSerializer(serializers.ModelSerializer):
 class AdminRoleInvitationSerializer(serializers.ModelSerializer):
     """Serializer for admin-managed role invitations."""
 
+    invite_code = serializers.CharField(source="token", read_only=True)
     invited_by_name = serializers.SerializerMethodField()
     accepted_by_name = serializers.SerializerMethodField()
     revoked_by_name = serializers.SerializerMethodField()
@@ -223,6 +224,7 @@ class AdminRoleInvitationSerializer(serializers.ModelSerializer):
             "role",
             "roles",
             "role_details",
+            "invite_code",
             "note",
             "status",
             "source",
@@ -429,6 +431,85 @@ class AdminRoleInvitationAcceptSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"password_confirm": "Passwords do not match."}
                 )
+        return attrs
+
+
+class AdminCommunicationSendSerializer(serializers.Serializer):
+    """Payload for admin multi-channel communications."""
+
+    CHANNEL_CHOICES = [
+        ("email", "Email"),
+        ("in_app", "In-App"),
+        ("sms", "SMS"),
+    ]
+
+    title = serializers.CharField(max_length=255)
+    email_subject = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    message = serializers.CharField()
+    sms_message = serializers.CharField(required=False, allow_blank=True)
+    link = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    campaign_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=CHANNEL_CHOICES),
+        allow_empty=False,
+    )
+    target_faculties = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+    target_departments = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+    target_courses = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+    target_year_of_study = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=12,
+    )
+    target_user_roles = serializers.ListField(
+        child=serializers.ChoiceField(choices=User.ROLE_CHOICES),
+        required=False,
+        allow_empty=True,
+    )
+
+    def validate_channels(self, values):
+        normalized_values = []
+        for value in values:
+            normalized_value = str(value or "").strip().lower()
+            if normalized_value and normalized_value not in normalized_values:
+                normalized_values.append(normalized_value)
+        return normalized_values
+
+    def validate_target_user_roles(self, values):
+        normalized_values = []
+        for value in values:
+            normalized_value = str(value or "").strip().upper()
+            if normalized_value and normalized_value not in normalized_values:
+                normalized_values.append(normalized_value)
+        return normalized_values
+
+    def validate(self, attrs):
+        channels = attrs.get("channels") or []
+        if "email" in channels and not str(
+            attrs.get("email_subject") or attrs.get("title") or ""
+        ).strip():
+            raise serializers.ValidationError(
+                {"email_subject": "Provide an email subject when sending email communications."}
+            )
+        if "sms" in channels and not str(
+            attrs.get("sms_message") or attrs.get("message") or ""
+        ).strip():
+            raise serializers.ValidationError(
+                {"sms_message": "Provide an SMS message when sending SMS communications."}
+            )
         return attrs
 
 

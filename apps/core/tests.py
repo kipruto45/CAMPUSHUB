@@ -5,6 +5,8 @@ Tests for TimeStampedModel, SlugifiedModel, SoftDeleteModel, AuditLog, EmailCamp
 
 import pytest
 from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
@@ -23,6 +25,13 @@ from apps.core.sms import (
     AfricasTalkingSMSProvider,
     SMSService,
     get_sms_configuration_status,
+)
+from apps.core.emails import (
+    AdminEmailService,
+    ResourceEmailService,
+    UserEmailService,
+    build_app_url,
+    get_frontend_base_url,
 )
 
 User = get_user_model()
@@ -288,6 +297,148 @@ class TestSMSService:
 
         assert status["configured"] is True
         assert status["optional_missing"] == ["AFRICAS_TALKING_SHORT_CODE"]
+
+
+class TestEmailLinks:
+    def test_get_frontend_base_url_falls_back_to_base_url(self, settings):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.BASE_URL = "https://api.example.com"
+
+        assert get_frontend_base_url() == "https://api.example.com"
+
+    def test_build_app_url_prefers_mobile_deeplink_when_frontend_missing(self, settings):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.BASE_URL = "https://api.example.com"
+        settings.MOBILE_DEEPLINK_SCHEME = "campushub"
+
+        url = build_app_url(
+            web_path="/billing",
+            mobile_path="billing",
+            fallback_path="/fallback/",
+        )
+
+        assert url == "campushub://billing"
+
+    def test_build_app_url_falls_back_to_backend_when_frontend_and_deeplink_missing(self, settings):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+        settings.BASE_URL = "https://api.example.com"
+
+        url = build_app_url(
+            web_path="/billing/plans",
+            mobile_path="billing/plans",
+            fallback_path="/api/payments/plans/",
+        )
+
+        assert url == "https://api.example.com/api/payments/plans/"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_password_reset_email_uses_current_reset_route(self, mock_send_template_email, settings, user):
+        settings.FRONTEND_BASE_URL = "https://campushub.example"
+        settings.FRONTEND_URL = "https://campushub.example"
+        settings.RESOURCE_SHARE_BASE_URL = "https://campushub.example"
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = "campushub"
+
+        UserEmailService.send_password_reset_email(user, "reset-token-123")
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["reset_url"] == "https://campushub.example/password-reset/reset-token-123"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_welcome_email_support_links_have_real_fallback_urls(
+        self,
+        mock_send_template_email,
+        settings,
+        user,
+    ):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+        settings.BASE_URL = "https://api.campushub.example"
+        settings.SUPPORT_EMAIL = "support@campushub.example"
+
+        UserEmailService.send_welcome_email(user, verification_token="verify-token-123")
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["website_url"] == "https://api.campushub.example"
+        assert context["help_center_url"] == "https://api.campushub.example/api/docs/"
+        assert context["contact_url"] == "mailto:support@campushub.example"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_resource_approved_email_uses_public_resource_slug_url(self, mock_send_template_email, settings, user):
+        settings.RESOURCE_SHARE_BASE_URL = "https://share.campushub.example"
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        resource = SimpleNamespace(
+            id=uuid4(),
+            slug="intro-to-economics",
+            title="Intro to Economics",
+        )
+
+        ResourceEmailService.send_resource_approved_email(user, resource)
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["resource_url"] == "https://share.campushub.example/resources/intro-to-economics"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_resource_rejected_email_uses_docs_fallback_when_app_route_unavailable(
+        self,
+        mock_send_template_email,
+        settings,
+        user,
+    ):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+        settings.BASE_URL = "https://api.campushub.example"
+        resource = SimpleNamespace(title="Intro to Economics")
+
+        ResourceEmailService.send_resource_rejected_email(user, resource, "Needs revision")
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["upload_url"] == "https://api.campushub.example/api/docs/"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_email_verification_email_falls_back_to_backend_when_no_frontend_or_scheme(
+        self,
+        mock_send_template_email,
+        settings,
+        user,
+    ):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+        settings.BASE_URL = "https://api.campushub.example"
+
+        UserEmailService.send_email_verification_email(user, verification_token="verify-token-123")
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["verify_url"] == "https://api.campushub.example/api/auth/verify-email/verify-token-123/"
+
+    @patch("apps.core.emails.EmailService.send_template_email", return_value=True)
+    def test_admin_registration_email_uses_backend_admin_change_url(self, mock_send_template_email, settings, user):
+        settings.BASE_URL = "https://api.campushub.example"
+
+        AdminEmailService.send_new_user_registration_email("admin@example.com", user)
+
+        context = mock_send_template_email.call_args.kwargs["context"]
+        assert context["profile_url"] == f"https://api.campushub.example/admin/accounts/user/{user.id}/change/"
 
 
 # =========================

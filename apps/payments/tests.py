@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 from decimal import Decimal
 
 from apps.payments.models import Plan, Subscription, Payment
+from apps.payments.notifications import PaymentNotificationService
 from apps.payments.services import StripeService
 from apps.payments.providers import PaymentService
 from apps.payments.providers import handle_paypal_webhook, handle_mobile_money_webhook
@@ -381,6 +382,107 @@ class TestPaymentEndpoints:
         assert len(mailoutbox) == 1
         assert "free trial has ended" in mailoutbox[0].subject.lower()
         assert mock_sms.call_count == 1
+
+
+@pytest.mark.django_db
+class TestPaymentNotificationLinks:
+    def test_trial_expired_email_uses_current_plans_link(self, settings, user, mailoutbox):
+        settings.FRONTEND_BASE_URL = "https://campushub.example"
+        settings.FRONTEND_URL = ""
+
+        sent = PaymentNotificationService.send_trial_expired_email(user, "Basic")
+
+        assert sent is True
+        assert len(mailoutbox) == 1
+        html = mailoutbox[0].alternatives[0][0]
+        assert "https://campushub.example/billing/plans" in html
+        assert "/settings/billing/" not in html
+
+    def test_payment_due_reminder_email_uses_current_pay_link(self, settings, user, mailoutbox):
+        settings.FRONTEND_BASE_URL = "https://campushub.example"
+        settings.FRONTEND_URL = ""
+
+        sent = PaymentNotificationService.send_payment_due_reminder_email(
+            user=user,
+            amount=Decimal("12.00"),
+            currency="USD",
+            due_date="2026-03-31",
+            description="Storage renewal",
+        )
+
+        assert sent is True
+        assert len(mailoutbox) == 1
+        html = mailoutbox[0].alternatives[0][0]
+        assert "https://campushub.example/billing/pay" in html
+
+    def test_storage_upgrade_confirmation_email_uses_storage_link(self, settings, user, mailoutbox):
+        settings.FRONTEND_BASE_URL = "https://campushub.example"
+        settings.FRONTEND_URL = ""
+
+        sent = PaymentNotificationService.send_storage_upgrade_confirmation_email(
+            user=user,
+            storage_gb=25,
+            duration_days=30,
+            amount=Decimal("4.99"),
+            currency="USD",
+        )
+
+        assert sent is True
+        assert len(mailoutbox) == 1
+        html = mailoutbox[0].alternatives[0][0]
+        assert "https://campushub.example/storage" in html
+
+    def test_payment_buttons_use_real_backend_fallback_urls_without_frontend(
+        self,
+        settings,
+        user,
+        mailoutbox,
+    ):
+        settings.FRONTEND_BASE_URL = ""
+        settings.FRONTEND_URL = ""
+        settings.RESOURCE_SHARE_BASE_URL = ""
+        settings.WEB_APP_URL = ""
+        settings.MOBILE_DEEPLINK_SCHEME = ""
+        settings.BASE_URL = "https://api.campushub.example"
+
+        assert PaymentNotificationService.send_trial_expired_email(user, "Basic") is True
+        assert PaymentNotificationService.send_payment_due_reminder_email(
+            user=user,
+            amount=Decimal("12.00"),
+            currency="USD",
+            due_date="2026-03-31",
+            description="Storage renewal",
+        ) is True
+        assert PaymentNotificationService.send_subscription_activated_email(
+            user=user,
+            plan_name="Premium",
+            billing_period="monthly",
+            amount=Decimal("9.99"),
+            currency="USD",
+        ) is True
+        assert PaymentNotificationService.send_refund_notification_email(
+            user=user,
+            amount=Decimal("3.50"),
+            currency="USD",
+            payment_id="pay_123",
+            reason="Duplicate payment",
+        ) is True
+        assert PaymentNotificationService.send_storage_upgrade_confirmation_email(
+            user=user,
+            storage_gb=25,
+            duration_days=30,
+            amount=Decimal("4.99"),
+            currency="USD",
+        ) is True
+
+        html_messages = [message.alternatives[0][0] for message in mailoutbox]
+        combined_html = "\n".join(html_messages)
+
+        assert 'href="#"' not in combined_html
+        assert "https://api.campushub.example/api/payments/plans/" in combined_html
+        assert "https://api.campushub.example/api/payments/payments/" in combined_html
+        assert "https://api.campushub.example/api/payments/subscription/" in combined_html
+        assert "https://api.campushub.example/api/payments/storage/" in combined_html
 
 
 @pytest.mark.django_db
