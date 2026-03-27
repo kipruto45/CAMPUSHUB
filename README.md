@@ -184,6 +184,17 @@ cd mobile
 npm run test:screens
 ```
 
+### Local Android Gradle setup
+
+Before running a local Gradle build, generate `mobile/android/local.properties` from your installed SDK path:
+
+```bash
+cd mobile
+npm run android:configure-sdk
+```
+
+The helper checks `ANDROID_SDK_ROOT`, `ANDROID_HOME`, `~/Android/Sdk`, and `~/android-sdk`.
+
 ## Docker Setup (Recommended for Production)
 
 1. Build and run with Docker Compose:

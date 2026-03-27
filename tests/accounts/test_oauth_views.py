@@ -275,7 +275,10 @@ def test_google_oauth_returns_500_on_unhandled_exception(
     )
 
     assert response.status_code == 500
-    assert response.data["error"] == "boom"
+    assert (
+        response.data["error"]
+        == "We couldn't sign you in with Google right now. Please try again."
+    )
 
 
 def test_google_oauth_url_endpoint_returns_authorization_url(api_client):
@@ -660,7 +663,47 @@ def test_microsoft_oauth_returns_500_on_unhandled_exception(
     )
 
     assert response.status_code == 500
-    assert response.data["error"] == "boom"
+    assert (
+        response.data["error"]
+        == "We couldn't sign you in with Microsoft right now. Please try again."
+    )
+
+
+@pytest.mark.django_db
+def test_google_oauth_link_hides_internal_errors(
+    api_client,
+    user,
+    monkeypatch,
+):
+    from apps.accounts import oauth_views
+    from apps.accounts.services import LinkedAccountService
+
+    api_client.force_authenticate(user=user)
+    monkeypatch.setattr(
+        oauth_views,
+        "_fetch_google_userinfo_from_access_token",
+        lambda access_token: {
+            "id": "google-user-123",
+            "email": "linked@example.com",
+        },
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("database timeout")
+
+    monkeypatch.setattr(LinkedAccountService, "link_account", boom)
+
+    response = api_client.post(
+        "/api/auth/google/link/",
+        {"access_token": "token"},
+        format="json",
+    )
+
+    assert response.status_code == 500
+    assert (
+        response.data["detail"]
+        == "We couldn't link your Google account right now. Please try again."
+    )
 
 
 def test_microsoft_oauth_url_endpoint_returns_authorization_url(api_client):

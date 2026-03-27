@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
+from urllib.parse import urljoin
 
 from django.conf import settings
 from django.db import models, transaction
@@ -58,8 +59,11 @@ class StripePaymentProvider(PaymentProvider):
         self.webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
 
     def is_configured(self) -> tuple[bool, str]:
-        if not str(getattr(settings, "STRIPE_SECRET_KEY", "") or "").strip():
+        secret_key = str(getattr(settings, "STRIPE_SECRET_KEY", "") or "").strip()
+        if not secret_key:
             return False, "Stripe is not configured. Set STRIPE_SECRET_KEY."
+        if not secret_key.startswith("sk_"):
+            return False, "Stripe is misconfigured. STRIPE_SECRET_KEY must be a valid secret key."
         return True, ""
 
     def create_payment(self, amount: Decimal, currency: str, metadata: dict) -> Dict[str, Any]:
@@ -169,6 +173,15 @@ class PayPalPaymentProvider(PaymentProvider):
             return False, "PayPal is not configured. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET."
         return True, ""
 
+    def _absolute_checkout_url(self, value: str | None, fallback_path: str) -> str:
+        """Convert relative callback paths into absolute URLs for PayPal."""
+        candidate = str(value or "").strip() or fallback_path
+        if candidate.startswith(("http://", "https://")):
+            return candidate
+
+        base_url = str(getattr(settings, "BASE_URL", "http://localhost:8000")).rstrip("/")
+        return urljoin(f"{base_url}/", candidate.lstrip("/"))
+
     def _extract_order_summary(self, payload: dict) -> Dict[str, Any]:
         purchase_units = payload.get("purchase_units") or [{}]
         purchase_unit = purchase_units[0] if purchase_units else {}
@@ -271,6 +284,18 @@ class PayPalPaymentProvider(PaymentProvider):
             local_reference = str(
                 metadata.get("payment_id") or metadata.get("order_id") or uuid.uuid4()
             )
+            success_url = self._absolute_checkout_url(
+                metadata.get("success_url"),
+                "/settings/billing/success/",
+            )
+            cancel_url = self._absolute_checkout_url(
+                metadata.get("cancel_url"),
+                "/settings/billing/cancel/",
+            )
+            normalized_amount = Decimal(str(amount)).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP,
+            )
 
             response = requests.post(
                 f"{self.base_url}/v2/checkout/orders",
@@ -282,12 +307,12 @@ class PayPalPaymentProvider(PaymentProvider):
                         "description": metadata.get("description", "CampusHub Payment"),
                         "amount": {
                             "currency_code": str(currency).upper(),
-                            "value": str(amount),
+                            "value": format(normalized_amount, "f"),
                         },
                     }],
                     "application_context": {
-                        "return_url": metadata.get("success_url", "/settings/billing/success/"),
-                        "cancel_url": metadata.get("cancel_url", "/settings/billing/cancel/"),
+                        "return_url": success_url,
+                        "cancel_url": cancel_url,
                         "shipping_preference": "NO_SHIPPING",
                         "user_action": "PAY_NOW",
                     },

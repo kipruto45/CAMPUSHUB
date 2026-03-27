@@ -8,6 +8,7 @@ services:
       pip install -r requirements.txt && \
       python manage.py migrate --noinput && \
       if [ "$RESET_REFERENCE_DATA" = "true" ]; then python manage.py clear_all_data; fi && \
+      python manage.py seed_default_plans && \
       python manage.py seed_all_data && \
       python manage.py collectstatic --noinput
     startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application

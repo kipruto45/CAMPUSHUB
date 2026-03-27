@@ -90,7 +90,7 @@ class CloudFile(models.Model):
         ordering = ['-cached_at']
     
     def __str__(self):
-        return f"{self.name} ({self.provider})"
+        return f"{self.name} ({self.account.provider})"
 
 
 class CloudImportHistory(models.Model):

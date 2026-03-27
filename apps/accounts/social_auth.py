@@ -28,6 +28,15 @@ class SocialAuthService:
     }
 
     @staticmethod
+    def _is_cloudinary_authorization_error(exc: Exception) -> bool:
+        """Return True when Cloudinary rejects an upload for authorization reasons."""
+        try:
+            from cloudinary.exceptions import AuthorizationRequired
+        except Exception:
+            return False
+        return isinstance(exc, AuthorizationRequired)
+
+    @staticmethod
     def _import_profile_image(
         user,
         provider: str,
@@ -81,7 +90,18 @@ class SocialAuthService:
                 return
 
             filename = f"{provider}_{user.id}.{extension}"
-            user.profile_image.save(filename, ContentFile(content), save=True)
+            try:
+                user.profile_image.save(filename, ContentFile(content), save=True)
+            except Exception as exc:
+                if SocialAuthService._is_cloudinary_authorization_error(exc):
+                    logger.warning(
+                        "Skipping %s profile image import for %s because cloud storage rejected the upload: %s",
+                        provider,
+                        user.email,
+                        exc,
+                    )
+                    return
+                raise
         except Exception:
             logger.exception(
                 "Failed to import %s profile image for %s",
@@ -289,14 +309,10 @@ class SocialAuthService:
         Returns:
             Dict with access and refresh tokens
         """
-        from rest_framework_simplejwt.tokens import RefreshToken
+        from .authentication import generate_tokens_for_user
 
-        refresh = RefreshToken.for_user(user)
-
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        }
+        # Social logins always use the 30-day "remember me" session
+        return generate_tokens_for_user(user, remember_me=True)
 
 
 def get_google_provider_config():

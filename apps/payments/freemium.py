@@ -34,6 +34,7 @@ class Feature(str, Enum):
     PROFILE = "profile"
     MESSAGING = "messaging"
     NOTIFICATIONS = "notifications"
+    BASIC_CLOUD_STORAGE = "basic_cloud_storage"
 
     # Basic plan features
     AI_FEATURES = "ai_features"
@@ -127,6 +128,11 @@ FEATURE_METADATA: Dict[Feature, dict] = {
     Feature.NOTIFICATIONS: {
         "name": "Notifications",
         "description": "Push and email notifications",
+        "category": "core",
+    },
+    Feature.BASIC_CLOUD_STORAGE: {
+        "name": "Basic Cloud Storage",
+        "description": "Connect cloud storage accounts with basic features",
         "category": "core",
     },
     Feature.AI_FEATURES: {
@@ -445,6 +451,7 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.PROFILE,
         Feature.MESSAGING,
         Feature.NOTIFICATIONS,
+        Feature.BASIC_CLOUD_STORAGE,
     },
     Tier.BASIC: {
         Feature.CALENDAR,
@@ -453,6 +460,7 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.PROFILE,
         Feature.MESSAGING,
         Feature.NOTIFICATIONS,
+        Feature.BASIC_CLOUD_STORAGE,
         Feature.AI_FEATURES,
         Feature.AI_SUMMARIZATION,
         Feature.AI_CHAT,
@@ -461,36 +469,16 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.NO_ADS,
         Feature.ADVANCED_SEARCH_FILTERS,
         Feature.INSTANT_NOTIFICATIONS,
-        Feature.PRIORITY_ACCESS,
-        Feature.NO_WATERMARKS,
         Feature.CUSTOM_FOLDERS,
-        Feature.RECURRING_EVENTS,
-        Feature.CALENDAR_SHARING,
-        Feature.RICH_TEXT_EDITING,
-        Feature.COLLABORATIVE_EDITING,
-        Feature.VERSION_HISTORY,
-        Feature.LEADERBOARD_PRIZES,
-        Feature.ACHIEVEMENT_SHARING,
-        Feature.DAILY_STREAK_REWARDS,
         Feature.EMAIL_DIGEST,
         Feature.PUSH_NOTIFICATIONS_FEATURE,
         Feature.PROFILE_VERIFICATION,
         Feature.CUSTOM_USERNAME,
-        Feature.THEME_CUSTOMIZATION,
         Feature.PRIVACY_CONTROLS,
         Feature.STUDY_SCHEDULES,
-        Feature.BULK_UPLOADS,
         Feature.PRIVATE_UPLOADS,
-        Feature.UPLOAD_APPROVAL,
         Feature.RESOURCE_REQUESTS,
         Feature.DOWNLOAD_TRACKING,
-        Feature.RATING_BREAKDOWN,
-        Feature.USAGE_STATISTICS,
-        Feature.COMPARISON_STATS,
-        Feature.EXPORT_REPORTS,
-        Feature.LIVE_CHAT,
-        Feature.PHONE_SUPPORT,
-        Feature.PRIORITY_RESPONSE,
     },
     Tier.PREMIUM: {
         Feature.CALENDAR,
@@ -628,8 +616,8 @@ TIER_PRICING: Dict[Tier, dict] = {
 
 
 TIER_MAX_UPLOAD_SIZE_MB: Dict[Tier, int] = {
-    Tier.FREE: 8,
-    Tier.BASIC: 40,
+    Tier.FREE: 5,
+    Tier.BASIC: 25,
     Tier.PREMIUM: 150,
     Tier.ENTERPRISE: 512,
 }
@@ -637,94 +625,94 @@ TIER_MAX_UPLOAD_SIZE_MB: Dict[Tier, int] = {
 
 TIER_STORAGE_LIMITS: Dict[Tier, int] = {
     Tier.FREE: 1,
-    Tier.BASIC: 8,
+    Tier.BASIC: 5,
     Tier.PREMIUM: 40,
     Tier.ENTERPRISE: 500,
 }
 
 
 TIER_DOWNLOAD_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 25,
-    Tier.BASIC: 250,
+    Tier.FREE: 10,
+    Tier.BASIC: 120,
     Tier.PREMIUM: 1500,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_UPLOAD_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 4,
-    Tier.BASIC: 40,
+    Tier.FREE: 2,
+    Tier.BASIC: 20,
     Tier.PREMIUM: 180,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_MESSAGE_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 8,
-    Tier.BASIC: 120,
+    Tier.FREE: 3,
+    Tier.BASIC: 60,
     Tier.PREMIUM: 500,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_GROUP_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 2,
-    Tier.BASIC: 8,
+    Tier.FREE: 1,
+    Tier.BASIC: 5,
     Tier.PREMIUM: 30,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_BOOKMARK_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 15,
-    Tier.BASIC: 120,
+    Tier.FREE: 8,
+    Tier.BASIC: 80,
     Tier.PREMIUM: 500,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_EVENT_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 6,
-    Tier.BASIC: 40,
+    Tier.FREE: 3,
+    Tier.BASIC: 20,
     Tier.PREMIUM: 200,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_POINTS_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 250,
-    Tier.BASIC: 5000,
+    Tier.FREE: 100,
+    Tier.BASIC: 2500,
     Tier.PREMIUM: 25000,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_BADGE_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 3,
-    Tier.BASIC: 20,
+    Tier.FREE: 1,
+    Tier.BASIC: 10,
     Tier.PREMIUM: -1,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_SEARCH_RESULTS_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 6,
-    Tier.BASIC: 30,
+    Tier.FREE: 4,
+    Tier.BASIC: 20,
     Tier.PREMIUM: 100,
     Tier.ENTERPRISE: -1,
 }
 
 
 TIER_NOTIFICATION_DELAY_HOURS: Dict[Tier, int] = {
-    Tier.FREE: 6,
-    Tier.BASIC: 1,
+    Tier.FREE: 12,
+    Tier.BASIC: 2,
     Tier.PREMIUM: 0,
     Tier.ENTERPRISE: 0,
 }
 
 
 TIER_SUPPORT_RESPONSE_HOURS: Dict[Tier, int] = {
-    Tier.FREE: 72,
+    Tier.FREE: 120,
     Tier.BASIC: 24,
     Tier.PREMIUM: 8,
     Tier.ENTERPRISE: 1,
@@ -773,19 +761,17 @@ TRIAL_LIMIT_OVERRIDES: Dict[Tier, dict] = {
 
 TRIAL_FEATURE_EXCLUSIONS: Dict[Tier, Set[Feature]] = {
     Tier.BASIC: {
-        Feature.EXPORT_REPORTS,
-        Feature.LIVE_CHAT,
-        Feature.PHONE_SUPPORT,
-        Feature.PRIORITY_RESPONSE,
+        Feature.ADVANCED_ANALYTICS,
+        Feature.CUSTOM_FOLDERS,
+        Feature.PRIVATE_UPLOADS,
+        Feature.RESOURCE_REQUESTS,
     },
     Tier.PREMIUM: {
         Feature.ALL_INTEGRATIONS,
         Feature.PRIORITY_SUPPORT,
         Feature.CERTIFICATES,
         Feature.EXPORT_DATA,
-        Feature.LIVE_CHAT,
-        Feature.PHONE_SUPPORT,
-        Feature.PRIORITY_RESPONSE,
+        Feature.ADVANCED_SEARCH,
     },
 }
 
@@ -793,20 +779,20 @@ TRIAL_FEATURE_EXCLUSIONS: Dict[Tier, Set[Feature]] = {
 PLAN_PROFILE_BY_TIER: Dict[Tier, dict] = {
     Tier.FREE: {
         "plan_type": "Starter",
-        "ideal_for": "Light browsing, core calendar access, and occasional downloads.",
+        "ideal_for": "Light browsing, core study tools, and a small amount of monthly activity.",
         "highlights": [
-            "Core study tools",
-            "Basic library access",
-            "Announcements and calendar",
+            "Core study tools with strict caps",
+            "1 cloud account with limited sync actions",
+            "Upgrade anytime for AI and higher limits",
         ],
     },
     Tier.BASIC: {
         "plan_type": "Focus",
-        "ideal_for": "Active students who need AI help and stronger daily limits.",
+        "ideal_for": "Students who want AI help and more room to study without full premium perks.",
         "highlights": [
             "AI chat and summaries",
-            "Analytics and folders",
-            "Moderate creator limits",
+            "Higher cloud and upload limits",
+            "Moderate daily study caps",
         ],
     },
     Tier.PREMIUM: {
@@ -1392,6 +1378,9 @@ def start_free_trial(user, *, auto_started: bool = False, source: str = "manual"
 def ensure_default_trial(user, *, source: str = "login"):
     """Best-effort helper to auto-provision a first trial when eligible."""
 
+    if source != "admin_access":
+        return None
+
     subscription, _payload = start_free_trial(user, auto_started=True, source=source)
     return subscription
 
@@ -1466,6 +1455,7 @@ def get_feature_access_summary(user) -> dict:
 
     from .models import Subscription
     from apps.payments.signals import get_user_plan_limits
+    from apps.core.models import APIUsageLog
 
     user_tier = get_user_tier(user)
     user_features = get_user_features(user)
@@ -1476,6 +1466,22 @@ def get_feature_access_summary(user) -> dict:
     trial_eligibility = get_trial_eligibility(user)
     admin_access = get_admin_access_status(user)
     limits = get_user_plan_limits(user)
+    ai_message_limit = get_plan_limitation(user, "ai_messages_per_day")
+    ai_messages_used_today = 0
+    if getattr(user, "is_authenticated", False):
+        start_of_day = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+        ai_messages_used_today = APIUsageLog.objects.filter(
+            user=user,
+            endpoint__endswith="/ai/chat/",
+            method="POST",
+            status_code__lt=400,
+            created_at__gte=start_of_day,
+        ).count()
+    ai_messages_remaining_today = (
+        -1
+        if ai_message_limit < 0
+        else max(ai_message_limit - ai_messages_used_today, 0)
+    )
     trial_locked_features = sorted(
         feature.value
         for feature in get_trial_feature_exclusions(user, subscription=subscription)
@@ -1559,16 +1565,27 @@ def get_feature_access_summary(user) -> dict:
             "cta_label": "Upgrade",
         }
     elif getattr(user, "is_authenticated", False) and user_tier == Tier.FREE:
+        free_limit_summary = (
+            f"{limits.get('downloads_monthly', TIER_DOWNLOAD_LIMITS[Tier.FREE])} downloads/mo, "
+            f"{limits.get('upload_limit_monthly', TIER_UPLOAD_LIMITS[Tier.FREE])} uploads/mo, "
+            f"{limits.get('group_limit', TIER_GROUP_LIMITS[Tier.FREE])} study group"
+        )
         if trial_expired:
             upgrade_prompt = {
                 "title": "Your free trial has ended",
-                "message": "Your 7-day free trial has elapsed. Upgrade now to restore AI tools, analytics, certificates, and premium access.",
+                "message": (
+                    "Your 7-day free trial has elapsed. Free access has reverted to strict caps "
+                    f"({free_limit_summary}). Upgrade now to restore AI tools, analytics, certificates, and premium access."
+                ),
                 "cta_label": "Upgrade",
             }
         else:
             upgrade_prompt = {
                 "title": "You are on the Free plan",
-                "message": "Free access includes only the core study tools. Upgrade to unlock AI features, analytics, certificates, integrations, and higher limits.",
+                "message": (
+                    "New accounts start on the Free plan. Free access includes only the core study tools and strict usage caps "
+                    f"({free_limit_summary}). Upgrade to unlock AI features, analytics, certificates, integrations, and higher limits."
+                ),
                 "cta_label": "Upgrade",
             }
 
@@ -1627,6 +1644,12 @@ def get_feature_access_summary(user) -> dict:
             "support_response_hours",
             TIER_SUPPORT_RESPONSE_HOURS[user_tier],
         ),
+        "cloud_storage_accounts": get_plan_limitation(user, "cloud_storage_accounts"),
+        "cloud_imports_per_month": get_plan_limitation(user, "cloud_imports_per_month"),
+        "cloud_exports_per_month": get_plan_limitation(user, "cloud_exports_per_month"),
+        "ai_messages_per_day": ai_message_limit,
+        "ai_messages_used_today": ai_messages_used_today,
+        "ai_messages_remaining_today": ai_messages_remaining_today,
         "can_download_unlimited": limits.get("unlimited_downloads", False),
         "has_ads": limits.get("has_ads", True),
         "has_priority_support": limits.get("priority_support", False),
@@ -1658,6 +1681,12 @@ def get_feature_access_summary(user) -> dict:
                 "support_response_hours",
                 TIER_SUPPORT_RESPONSE_HOURS[user_tier],
             ),
+            "cloud_storage_accounts": get_plan_limitation(user, "cloud_storage_accounts"),
+            "cloud_imports_per_month": get_plan_limitation(user, "cloud_imports_per_month"),
+            "cloud_exports_per_month": get_plan_limitation(user, "cloud_exports_per_month"),
+            "ai_messages_per_day": ai_message_limit,
+            "ai_messages_used_today": ai_messages_used_today,
+            "ai_messages_remaining_today": ai_messages_remaining_today,
             "has_ads": limits.get("has_ads", True),
             "priority_support": limits.get("priority_support", False),
             "analytics": limits.get("analytics", False),
@@ -1674,3 +1703,124 @@ def get_feature_access_summary(user) -> dict:
         ),
         "categories": categories,
     }
+
+
+# =============================================================================
+# Plan Limitations
+# =============================================================================
+
+TIER_CLOUD_STORAGE_ACCOUNT_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 1,
+    Tier.BASIC: 2,
+    Tier.PREMIUM: 5,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_CLOUD_IMPORT_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 3,
+    Tier.BASIC: 15,
+    Tier.PREMIUM: 120,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_CLOUD_EXPORT_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 2,
+    Tier.BASIC: 10,
+    Tier.PREMIUM: 60,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_AI_MESSAGE_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 0,
+    Tier.BASIC: 20,
+    Tier.PREMIUM: 120,
+    Tier.ENTERPRISE: -1,
+}
+
+PLAN_LIMITATIONS = {
+    Tier.FREE: {
+        "cloud_storage_accounts": TIER_CLOUD_STORAGE_ACCOUNT_LIMITS[Tier.FREE],
+        "cloud_imports_per_month": TIER_CLOUD_IMPORT_LIMITS[Tier.FREE],
+        "cloud_exports_per_month": TIER_CLOUD_EXPORT_LIMITS[Tier.FREE],
+        "messages_per_day": TIER_MESSAGE_LIMITS[Tier.FREE],
+        "downloads_per_month": TIER_DOWNLOAD_LIMITS[Tier.FREE],
+        "uploads_per_month": TIER_UPLOAD_LIMITS[Tier.FREE],
+        "groups": TIER_GROUP_LIMITS[Tier.FREE],
+        "ai_messages_per_day": TIER_AI_MESSAGE_LIMITS[Tier.FREE],
+        "storage_mb": TIER_STORAGE_LIMITS[Tier.FREE] * 1024,
+        "max_file_size_mb": TIER_MAX_UPLOAD_SIZE_MB[Tier.FREE],
+        "search_results_per_query": TIER_SEARCH_RESULTS_LIMITS[Tier.FREE],
+    },
+    Tier.BASIC: {
+        "cloud_storage_accounts": TIER_CLOUD_STORAGE_ACCOUNT_LIMITS[Tier.BASIC],
+        "cloud_imports_per_month": TIER_CLOUD_IMPORT_LIMITS[Tier.BASIC],
+        "cloud_exports_per_month": TIER_CLOUD_EXPORT_LIMITS[Tier.BASIC],
+        "messages_per_day": TIER_MESSAGE_LIMITS[Tier.BASIC],
+        "downloads_per_month": TIER_DOWNLOAD_LIMITS[Tier.BASIC],
+        "uploads_per_month": TIER_UPLOAD_LIMITS[Tier.BASIC],
+        "groups": TIER_GROUP_LIMITS[Tier.BASIC],
+        "ai_messages_per_day": TIER_AI_MESSAGE_LIMITS[Tier.BASIC],
+        "storage_mb": TIER_STORAGE_LIMITS[Tier.BASIC] * 1024,
+        "max_file_size_mb": TIER_MAX_UPLOAD_SIZE_MB[Tier.BASIC],
+        "search_results_per_query": TIER_SEARCH_RESULTS_LIMITS[Tier.BASIC],
+    },
+    Tier.PREMIUM: {
+        "cloud_storage_accounts": TIER_CLOUD_STORAGE_ACCOUNT_LIMITS[Tier.PREMIUM],
+        "cloud_imports_per_month": TIER_CLOUD_IMPORT_LIMITS[Tier.PREMIUM],
+        "cloud_exports_per_month": TIER_CLOUD_EXPORT_LIMITS[Tier.PREMIUM],
+        "messages_per_day": TIER_MESSAGE_LIMITS[Tier.PREMIUM],
+        "downloads_per_month": TIER_DOWNLOAD_LIMITS[Tier.PREMIUM],
+        "uploads_per_month": TIER_UPLOAD_LIMITS[Tier.PREMIUM],
+        "groups": TIER_GROUP_LIMITS[Tier.PREMIUM],
+        "ai_messages_per_day": TIER_AI_MESSAGE_LIMITS[Tier.PREMIUM],
+        "storage_mb": TIER_STORAGE_LIMITS[Tier.PREMIUM] * 1024,
+        "max_file_size_mb": TIER_MAX_UPLOAD_SIZE_MB[Tier.PREMIUM],
+        "search_results_per_query": TIER_SEARCH_RESULTS_LIMITS[Tier.PREMIUM],
+    },
+    Tier.ENTERPRISE: {
+        "cloud_storage_accounts": TIER_CLOUD_STORAGE_ACCOUNT_LIMITS[Tier.ENTERPRISE],
+        "cloud_imports_per_month": TIER_CLOUD_IMPORT_LIMITS[Tier.ENTERPRISE],
+        "cloud_exports_per_month": TIER_CLOUD_EXPORT_LIMITS[Tier.ENTERPRISE],
+        "messages_per_day": TIER_MESSAGE_LIMITS[Tier.ENTERPRISE],
+        "downloads_per_month": TIER_DOWNLOAD_LIMITS[Tier.ENTERPRISE],
+        "uploads_per_month": TIER_UPLOAD_LIMITS[Tier.ENTERPRISE],
+        "groups": TIER_GROUP_LIMITS[Tier.ENTERPRISE],
+        "ai_messages_per_day": TIER_AI_MESSAGE_LIMITS[Tier.ENTERPRISE],
+        "storage_mb": -1,
+        "max_file_size_mb": -1,
+        "search_results_per_query": TIER_SEARCH_RESULTS_LIMITS[Tier.ENTERPRISE],
+    },
+}
+
+
+def get_plan_limitation(user, limitation_key: str) -> int:
+    """Get the limitation value for a user based on their tier.
+    
+    Returns:
+        int: The limitation value, or -1 for unlimited.
+    """
+    tier = get_user_tier(user)
+    limitations = PLAN_LIMITATIONS.get(tier, {})
+    return limitations.get(limitation_key, -1)
+
+
+def check_plan_limitation(user, limitation_key: str, current_count: int) -> tuple[bool, Optional[str]]:
+    """Check if a user has reached their plan limitation.
+    
+    Returns:
+        tuple: (allowed: bool, error_message: Optional[str])
+    """
+    limit = get_plan_limitation(user, limitation_key)
+    
+    if limit == -1:  # Unlimited
+        return True, None
+    
+    if current_count >= limit:
+        tier = get_user_tier(user)
+        tier_name = TIER_INFO[tier].name if tier in TIER_INFO else tier.value
+        return False, f"You have reached the {limitation_key.replace('_', ' ')} limit for {tier_name} plan. Upgrade for higher limits."
+    
+    return True, None

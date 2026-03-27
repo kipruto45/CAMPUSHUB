@@ -117,6 +117,28 @@ class StudyGroupJoinView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, group_id):
+        # Check plan limitations for groups
+        from apps.payments.freemium import check_plan_limitation
+        from .models import StudyGroupMembership
+        
+        active_groups = StudyGroupMembership.objects.filter(
+            user=request.user,
+            status="active"
+        ).count()
+        
+        allowed, error_message = check_plan_limitation(
+            request.user, 
+            'groups', 
+            active_groups
+        )
+        
+        if not allowed:
+            return Response({
+                "error": "Group limit reached",
+                "reason": error_message,
+                "upgrade_url": "/settings/billing/upgrade/",
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         group = StudyGroupService.get_group(group_id)
         membership, created = StudyGroupService.join_group(request.user, group)
         return Response(

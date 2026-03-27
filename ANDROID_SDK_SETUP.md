@@ -31,6 +31,13 @@ Then run:
 source ~/.bashrc
 ```
 
+CampusHub can also auto-detect these common SDK locations when generating `mobile/android/local.properties`:
+
+- `ANDROID_SDK_ROOT`
+- `ANDROID_HOME`
+- `~/Android/Sdk`
+- `~/android-sdk`
+
 ## Step 3: Accept Licenses and Install SDK Components
 
 ```bash
@@ -41,8 +48,8 @@ sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 ## Step 4: Configure Local Properties
 
 ```bash
-cd /home/kipruto/Desktop/CampusHub/mobile/android
-echo "sdk.dir=$HOME/android-sdk" > local.properties
+cd /home/kipruto/Desktop/CampusHub/mobile
+npm run android:configure-sdk
 ```
 
 ## Step 5: Build APK

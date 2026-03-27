@@ -573,6 +573,26 @@ class ResourceDownloadService:
                 return False, "Resource is not public."
             return True, None
 
+        # Check plan limitations for downloads
+        from apps.payments.freemium import check_plan_limitation
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        one_month_ago = timezone.now() - timedelta(days=30)
+        monthly_downloads = Download.objects.filter(
+            user=self.user,
+            downloaded_at__gte=one_month_ago
+        ).count()
+        
+        allowed, error_message = check_plan_limitation(
+            self.user, 
+            'downloads_per_month', 
+            monthly_downloads
+        )
+        
+        if not allowed:
+            return False, error_message
+
         # Authenticated user
         if self.resource.status == "approved":
             return True, None
@@ -1000,6 +1020,26 @@ class ResourceUploadService:
     @transaction.atomic
     def create_resource_upload(*, user, validated_data, is_mobile=False):
         """Create a new resource upload in pending moderation state."""
+        # Check plan limitations for uploads
+        from apps.payments.freemium import check_plan_limitation
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        one_month_ago = timezone.now() - timedelta(days=30)
+        monthly_uploads = Resource.objects.filter(
+            uploaded_by=user,
+            created_at__gte=one_month_ago
+        ).count()
+        
+        allowed, error_message = check_plan_limitation(
+            user, 
+            'uploads_per_month', 
+            monthly_uploads
+        )
+        
+        if not allowed:
+            raise ValidationError({"detail": error_message})
+        
         file_obj = validated_data.get("file")
         computed = ResourceUploadService.validate_resource_upload(
             user=user,

@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.exceptions import log_exception_response
 from apps.payments.freemium import Feature, can_access_feature
 
 from .models import CloudStorageAccount, CloudFile
@@ -28,12 +29,25 @@ def normalize_provider(raw: str):
 
 
 def _integration_feature_denied(user):
+    """Check if user has access to cloud integrations.
+    
+    Free users get basic cloud storage access with limitations.
+    Premium+ users get full integration features.
+    """
+    # Check for premium integrations first
     has_access, reason = can_access_feature(user, Feature.ALL_INTEGRATIONS)
     if has_access:
         return None
+    
+    # Allow free users with basic cloud storage access
+    has_basic_access, _ = can_access_feature(user, Feature.BASIC_CLOUD_STORAGE)
+    if has_basic_access:
+        return None  # Free users can access with limitations
+    
+    # User doesn't have any cloud storage access
     return {
         "error": "Feature not available",
-        "reason": reason,
+        "reason": "Cloud storage integration requires a Basic or higher plan.",
         "feature": Feature.ALL_INTEGRATIONS.value,
         "upgrade_url": "/settings/billing/upgrade/",
     }
@@ -140,14 +154,47 @@ class CloudStorageConnectView(CloudIntegrationAccessMixin, APIView):
         if not redirect_uri:
             return Response({'error': 'redirect_uri is required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        if provider == 'google_drive':
-            auth_url = GoogleDriveService.get_authorization_url(redirect_uri)
-            return Response({'authUrl': auth_url})
-        elif provider == 'onedrive':
-            auth_url = OneDriveService.get_authorization_url(redirect_uri)
-            return Response({'authUrl': auth_url})
-        else:
-            return Response({'error': 'Invalid provider'}, status=status.HTTP_400_BAD_REQUEST)
+        existing_provider_account = CloudStorageAccount.objects.filter(
+            user=request.user,
+            provider=provider,
+            is_active=True,
+        ).exists()
+
+        if not existing_provider_account:
+            from apps.payments.freemium import check_plan_limitation
+
+            existing_accounts = CloudStorageAccount.objects.filter(
+                user=request.user,
+                is_active=True
+            ).count()
+
+            allowed, error_message = check_plan_limitation(
+                request.user,
+                'cloud_storage_accounts',
+                existing_accounts
+            )
+
+            if not allowed:
+                return Response({
+                    'error': 'Plan limit reached',
+                    'reason': error_message,
+                    'upgrade_url': '/settings/billing/upgrade/',
+                }, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            if provider == 'google_drive':
+                auth_url = GoogleDriveService.get_authorization_url(redirect_uri)
+                return Response({'authUrl': auth_url})
+            elif provider == 'onedrive':
+                auth_url = OneDriveService.get_authorization_url(redirect_uri)
+                return Response({'authUrl': auth_url})
+            else:
+                return Response({'error': 'Invalid provider'}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 class CloudStorageOAuthCallbackView(CloudIntegrationAccessMixin, APIView):
@@ -164,6 +211,33 @@ class CloudStorageOAuthCallbackView(CloudIntegrationAccessMixin, APIView):
         
         if not code or not redirect_uri:
             return Response({'error': 'code and redirect_uri are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing_provider_account = CloudStorageAccount.objects.filter(
+            user=request.user,
+            provider=provider,
+            is_active=True,
+        ).exists()
+
+        if not existing_provider_account:
+            from apps.payments.freemium import check_plan_limitation
+
+            existing_accounts = CloudStorageAccount.objects.filter(
+                user=request.user,
+                is_active=True
+            ).count()
+
+            allowed, error_message = check_plan_limitation(
+                request.user,
+                'cloud_storage_accounts',
+                existing_accounts
+            )
+
+            if not allowed:
+                return Response({
+                    'error': 'Plan limit reached',
+                    'reason': error_message,
+                    'upgrade_url': '/settings/billing/upgrade/',
+                }, status=status.HTTP_403_FORBIDDEN)
         
         try:
             if provider == 'google_drive':
@@ -182,9 +256,21 @@ class CloudStorageOAuthCallbackView(CloudIntegrationAccessMixin, APIView):
                     'display_name': account.display_name,
                 }
             })
-        except Exception as e:
-            logger.error(f"Cloud storage connection failed: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Cloud storage connection failed",
+                user_message=(
+                    "We couldn't connect that cloud storage account right now. Please try again."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                field="error",
+            )
 
 
 class CloudStorageDisconnectView(CloudIntegrationAccessMixin, APIView):
@@ -268,9 +354,16 @@ class CloudStorageFilesView(CloudIntegrationAccessMixin, APIView):
                 'files': files,
                 'nextPageToken': next_page,
             })
-        except Exception as e:
-            logger.error(f"Failed to list cloud files: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Failed to list cloud files",
+                user_message=(
+                    "We couldn't load your cloud files right now. Please try again."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                field="error",
+            )
 
 
 class CloudStorageFoldersView(CloudIntegrationAccessMixin, APIView):
@@ -302,9 +395,16 @@ class CloudStorageFoldersView(CloudIntegrationAccessMixin, APIView):
                 folders = OneDriveService.list_folders(token, parent_id)
             
             return Response({'folders': folders})
-        except Exception as e:
-            logger.error(f"Failed to list cloud folders: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Failed to list cloud folders",
+                user_message=(
+                    "We couldn't load your cloud folders right now. Please try again."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                field="error",
+            )
 
 
 class CloudStorageDownloadView(CloudIntegrationAccessMixin, APIView):
@@ -328,9 +428,16 @@ class CloudStorageDownloadView(CloudIntegrationAccessMixin, APIView):
         try:
             result = CloudStorageService.import_file(account, file_id)
             return Response(result)
-        except Exception as e:
-            logger.error(f"Failed to download cloud file: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Failed to import cloud file for download flow",
+                user_message=(
+                    "We couldn't import that cloud file right now. Please try again."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                field="error",
+            )
 
 
 class CloudStorageStorageView(CloudIntegrationAccessMixin, APIView):
@@ -427,9 +534,16 @@ class CloudStorageSyncView(CloudIntegrationAccessMixin, APIView):
         try:
             result = CloudStorageService.sync_account(account)
             return Response(result)
-        except Exception as e:
-            logger.error(f"Cloud sync failed: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Cloud sync failed",
+                user_message=(
+                    "We couldn't sync your cloud storage right now. Please try again."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                field="error",
+            )
 
 
 @api_view(['POST'])
@@ -449,6 +563,30 @@ def cloud_storage_import(request, provider):
     if not file_id:
         return Response({'error': 'file_id is required'}, status=status.HTTP_400_BAD_REQUEST)
     
+    # Check plan limitations for imports
+    from apps.payments.freemium import check_plan_limitation
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    one_month_ago = timezone.now() - timedelta(days=30)
+    monthly_imports = CloudImportHistory.objects.filter(
+        account__user=request.user,
+        imported_at__gte=one_month_ago
+    ).count()
+    
+    allowed, error_message = check_plan_limitation(
+        request.user, 
+        'cloud_imports_per_month', 
+        monthly_imports
+    )
+    
+    if not allowed:
+        return Response({
+            'error': 'Monthly import limit reached',
+            'reason': error_message,
+            'upgrade_url': '/settings/billing/upgrade/',
+        }, status=status.HTTP_403_FORBIDDEN)
+    
     try:
         account = CloudStorageAccount.objects.get(
             user=request.user,
@@ -461,9 +599,16 @@ def cloud_storage_import(request, provider):
     try:
         result = CloudStorageService.import_file(account, file_id, target_library_id)
         return Response(result)
-    except Exception as e:
-        logger.error(f"Failed to import cloud file: {str(e)}")
-        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        return log_exception_response(
+            logger_obj=logger,
+            log_message="Failed to import cloud file",
+            user_message=(
+                "We couldn't import that cloud file right now. Please try again."
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            field="error",
+        )
 
 
 @api_view(['POST'])
@@ -482,6 +627,30 @@ def cloud_storage_export(request, provider):
     
     if not resource_id:
         return Response({'error': 'resource_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check plan limitations for exports
+    from apps.payments.freemium import check_plan_limitation
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    one_month_ago = timezone.now() - timedelta(days=30)
+    monthly_exports = CloudExportHistory.objects.filter(
+        account__user=request.user,
+        exported_at__gte=one_month_ago
+    ).count()
+    
+    allowed, error_message = check_plan_limitation(
+        request.user, 
+        'cloud_exports_per_month', 
+        monthly_exports
+    )
+    
+    if not allowed:
+        return Response({
+            'error': 'Monthly export limit reached',
+            'reason': error_message,
+            'upgrade_url': '/settings/billing/upgrade/',
+        }, status=status.HTTP_403_FORBIDDEN)
     
     try:
         account = CloudStorageAccount.objects.get(
@@ -502,6 +671,15 @@ def cloud_storage_export(request, provider):
     try:
         result = CloudStorageService.export_file(account, resource, folder_id)
         return Response(result)
-    except Exception as e:
-        logger.error(f"Failed to export to cloud: {str(e)}")
-        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        return log_exception_response(
+            logger_obj=logger,
+            log_message="Failed to export resource to cloud storage",
+            user_message=(
+                "We couldn't export that file to cloud storage right now. Please try again."
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            field="error",
+        )

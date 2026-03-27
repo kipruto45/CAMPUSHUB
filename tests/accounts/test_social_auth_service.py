@@ -218,3 +218,36 @@ def test_import_profile_image_handles_request_failures(monkeypatch, user):
 
     user.refresh_from_db()
     assert user.profile_image.name == "defaults/profile.png"
+
+
+@pytest.mark.django_db
+def test_import_profile_image_skips_cloudinary_authorization_failures(
+    monkeypatch,
+    user,
+    caplog,
+):
+    def failing_save(*args, **kwargs):
+        raise RuntimeError("cloud_name is disabled")
+
+    monkeypatch.setattr(
+        user.profile_image,
+        "save",
+        failing_save,
+    )
+    monkeypatch.setattr(
+        SocialAuthService,
+        "_is_cloudinary_authorization_error",
+        lambda exc: True,
+    )
+
+    with caplog.at_level("WARNING"):
+        SocialAuthService._import_profile_image(
+            user=user,
+            provider="google",
+            image_bytes=b"fake-image",
+            content_type="image/png",
+        )
+
+    user.refresh_from_db()
+    assert user.profile_image.name == "defaults/profile.png"
+    assert "Skipping google profile image import" in caplog.text

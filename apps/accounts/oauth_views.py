@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.emails import EmailService, get_frontend_base_url
+from apps.core.exceptions import log_exception_response
 
 from .serializers import UserSerializer
 from .social_auth import (SocialAuthService, get_google_provider_config,
@@ -332,9 +333,19 @@ class GoogleOAuthView(APIView):
                 )
             )
 
-        except Exception as e:
+        except ValueError as exc:
             return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Google OAuth sign-in error",
+                user_message=(
+                    "We couldn't sign you in with Google right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                field="error",
             )
 
 
@@ -456,9 +467,19 @@ class MicrosoftOAuthView(APIView):
                 )
             )
 
-        except Exception as e:
+        except ValueError as exc:
             return Response(
-                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Microsoft OAuth sign-in error",
+                user_message=(
+                    "We couldn't sign you in with Microsoft right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                field="error",
             )
 
 
@@ -542,9 +563,19 @@ class GoogleOAuthNativeView(APIView):
                     "Google authentication successful",
                 )
             )
-        except Exception as e:
+        except ValueError as exc:
             return Response(
-                {"error": str(e)}, status=status.HTTP_400_BAD_REQUEST
+                {"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Google native OAuth sign-in error",
+                user_message=(
+                    "We couldn't complete Google sign-in right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                field="error",
             )
 
 
@@ -625,9 +656,19 @@ class MicrosoftOAuthNativeView(APIView):
                     "Microsoft authentication successful",
                 )
             )
-        except Exception as e:
+        except ValueError as exc:
             return Response(
-                {"error": str(e)}, status=status.HTTP_400_BAD_REQUEST
+                {"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Microsoft native OAuth sign-in error",
+                user_message=(
+                    "We couldn't complete Microsoft sign-in right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                field="error",
             )
 
 
@@ -800,9 +841,18 @@ class GoogleOAuthLinkView(APIView):
             )
 
             return Response({"message": "Google account linked successfully."})
-        except Exception as exc:
+        except ValueError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Google account link error",
+                user_message=(
+                    "We couldn't link your Google account right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -861,7 +911,16 @@ class MicrosoftOAuthLinkView(APIView):
             )
 
             return Response({"message": "Microsoft account linked successfully."})
-        except Exception as exc:
+        except ValueError as exc:
             return Response(
                 {"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Unhandled Microsoft account link error",
+                user_message=(
+                    "We couldn't link your Microsoft account right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

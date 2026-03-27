@@ -53,6 +53,30 @@ class DirectMessageSendView(APIView):
         if not body:
             return Response({"error": "body is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Check plan limitations for messaging
+        from apps.payments.freemium import check_plan_limitation
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        daily_messages = Message.objects.filter(
+            sender=request.user,
+            created_at__gte=today_start
+        ).count()
+        
+        allowed, error_message = check_plan_limitation(
+            request.user, 
+            'messages_per_day', 
+            daily_messages
+        )
+        
+        if not allowed:
+            return Response({
+                "error": "Daily message limit reached",
+                "reason": error_message,
+                "upgrade_url": "/settings/billing/upgrade/",
+            }, status=status.HTTP_403_FORBIDDEN)
+
         try:
             recipient = User.objects.get(pk=user_id)
         except User.DoesNotExist:

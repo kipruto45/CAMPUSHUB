@@ -71,6 +71,30 @@ class TestAnnouncementsModule:
         assert len(response.data) >= 1
         assert all(item["is_pinned"] for item in response.data)
 
+    def test_unauthenticated_list_shows_only_public_announcements(
+        self,
+        api_client,
+        published_announcement,
+        admin_user,
+        faculty,
+    ):
+        Announcement.objects.create(
+            title="Faculty Notice",
+            content="Only science students should see this.",
+            announcement_type="general",
+            status=AnnouncementStatus.PUBLISHED,
+            published_at=timezone.now(),
+            created_by=admin_user,
+            target_faculty=faculty,
+        )
+
+        response = api_client.get("/api/announcements/")
+
+        assert response.status_code == status.HTTP_200_OK
+        titles = [item["title"] for item in response.data["results"]]
+        assert "Published Notice" in titles
+        assert "Faculty Notice" not in titles
+
     def test_admin_can_create_and_publish_announcement(
         self, admin_client, user
     ):

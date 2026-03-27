@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.core.models import APIUsageLog
 from apps.accounts.models import User
 from apps.payments.models import Plan, Subscription
 from apps.resources.models import Resource
@@ -143,3 +144,25 @@ class TestAIChatbot:
             source.get("id") == str(approved_resource.id)
             for source in response.data["sources"]
         )
+
+    def test_chatbot_enforces_daily_ai_limit(self, api_client, chat_user):
+        api_client.force_authenticate(user=chat_user)
+
+        for _ in range(20):
+            APIUsageLog.objects.create(
+                user=chat_user,
+                endpoint="/api/v1/ai/chat/",
+                method="POST",
+                status_code=200,
+                response_time_ms=10,
+            )
+
+        response = api_client.post(
+            "/api/v1/ai/chat/",
+            {"message": "Explain graphs"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.data["feature"] == "ai_chat"
+        assert response.data["limit"] == 20

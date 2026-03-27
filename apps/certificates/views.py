@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
+from apps.core.exceptions import log_exception_response
 from apps.courses.models import Course
 from apps.payments.freemium import Feature, can_access_feature
 
@@ -237,11 +238,15 @@ class CertificateGenerateView(CertificateFeatureAccessMixin, APIView):
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
 
-        except Exception as e:
-            logger.error(f"Error generating certificate: {str(e)}")
-            return Response(
-                {"error": f"Failed to generate certificate: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        except Exception:
+            return log_exception_response(
+                logger_obj=logger,
+                log_message="Error generating certificate",
+                user_message=(
+                    "We couldn't generate that certificate right now. Please try again."
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                field="error",
             )
 
 

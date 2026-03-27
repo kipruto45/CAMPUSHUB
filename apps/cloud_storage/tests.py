@@ -184,7 +184,7 @@ class TestCloudExportHistoryModel:
         resource = Resource.objects.create(
             title="Test Resource",
             description="Test",
-            created_by=user,
+            uploaded_by=user,
         )
         history = CloudExportHistory.objects.create(
             user=user,

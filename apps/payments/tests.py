@@ -293,7 +293,13 @@ class TestPaymentEndpoints:
         response = api_client.get("/api/payments/limits/")
         
         assert response.status_code == 200
-        assert "storage_gb" in response.data
+        assert response.data["storage_gb"] == 1
+        assert response.data["max_upload_mb"] == 5
+        assert response.data["downloads_monthly"] == 10
+        assert response.data["upload_limit_monthly"] == 2
+        assert response.data["message_limit_daily"] == 3
+        assert response.data["group_limit"] == 1
+        assert response.data["support_response_hours"] == 120
 
     def test_create_subscription_with_generic_provider_links_payment(self, api_client, user, plan):
         api_client.force_authenticate(user=user)
@@ -337,6 +343,114 @@ class TestPaymentEndpoints:
         assert payment.payment_type == "subscription"
         assert payment.metadata.get("provider") == "paypal"
         assert subscription.status == "unpaid"
+
+    def test_purchase_storage_upgrade_paypal_uses_absolute_urls_and_rounded_amount(
+        self,
+        api_client,
+        user,
+        settings,
+    ):
+        api_client.force_authenticate(user=user)
+        settings.BASE_URL = "https://api.example.com"
+        captured = {}
+
+        class StubProvider:
+            def create_payment(self, amount, currency, metadata):
+                captured["amount"] = amount
+                captured["currency"] = currency
+                captured["metadata"] = dict(metadata)
+                return {
+                    "success": True,
+                    "payment_id": "PAYPAL-STORAGE-001",
+                    "checkout_url": "https://example.com/paypal/storage",
+                }
+
+            def verify_payment(self, payment_id):
+                return {"success": True, "status": "PENDING"}
+
+            def process_webhook(self, payload, signature):
+                return {"success": True, "event_type": "PAYMENT.CAPTURE.COMPLETED", "data": {}}
+
+            def refund_payment(self, payment_id, amount=None):
+                return {"success": True}
+
+        with patch.dict(payment_service.providers, {"paypal": StubProvider()}, clear=False):
+            response = api_client.post(
+                "/api/payments/storage/",
+                {
+                    "storage_gb": 5,
+                    "duration_days": 365,
+                    "provider": "paypal",
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.data["provider"] == "paypal"
+        assert response.data["amount"] == "121.67"
+        assert response.data["currency"] == "USD"
+        assert captured["amount"] == Decimal("121.67")
+        assert captured["currency"] == "USD"
+        assert captured["metadata"]["success_url"] == "https://api.example.com/settings/billing/success/"
+        assert captured["metadata"]["cancel_url"] == "https://api.example.com/settings/billing/cancel/"
+
+        payment = Payment.objects.get(id=response.data["payment_id"])
+        upgrade = payment.storage_upgrades.get()
+        assert payment.amount == Decimal("121.67")
+        assert payment.currency == "USD"
+        assert upgrade.price == Decimal("121.67")
+
+    def test_purchase_storage_upgrade_mobile_money_uses_kes_currency(
+        self,
+        api_client,
+        user,
+    ):
+        api_client.force_authenticate(user=user)
+        captured = {}
+
+        class StubProvider:
+            def create_payment(self, amount, currency, metadata):
+                captured["amount"] = amount
+                captured["currency"] = currency
+                captured["metadata"] = dict(metadata)
+                return {
+                    "success": True,
+                    "payment_id": "MM-STORAGE-001",
+                    "checkout_url": None,
+                    "instructions": {"message": "Approve the M-Pesa prompt on your phone."},
+                }
+
+            def verify_payment(self, payment_id):
+                return {"success": True, "status": "PENDING"}
+
+            def process_webhook(self, payload, signature):
+                return {"success": True, "event_type": "COMPLETED", "data": {}}
+
+            def refund_payment(self, payment_id, amount=None):
+                return {"success": True}
+
+        with patch.dict(payment_service.providers, {"mobile_money": StubProvider()}, clear=False):
+            response = api_client.post(
+                "/api/payments/storage/",
+                {
+                    "storage_gb": 10,
+                    "duration_days": 30,
+                    "provider": "mobile_money",
+                    "phone_number": "0712345678",
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.data["provider"] == "mobile_money"
+        assert response.data["currency"] == "KES"
+        assert captured["amount"] == Decimal("20.00")
+        assert captured["currency"] == "KES"
+        assert captured["metadata"]["phone_number"] == "0712345678"
+
+        payment = Payment.objects.get(id=response.data["payment_id"])
+        assert payment.currency == "KES"
+        assert payment.metadata.get("phone_number") == "0712345678"
 
     def test_get_subscription_syncs_pending_paypal_payment(self, api_client, user, plan):
         api_client.force_authenticate(user=user)
@@ -427,8 +541,23 @@ class TestPaymentEndpoints:
         assert response.data["message_limit_daily"] == 40
         assert response.data["group_limit"] == 3
         assert response.data["support_response_hours"] == 48
-        assert "export_reports" in response.data["trial_locked_features"]
-        assert "phone_support" in response.data["trial_locked_features"]
+        assert "custom_folders" in response.data["trial_locked_features"]
+        assert "resource_requests" in response.data["trial_locked_features"]
+
+    def test_free_plan_feature_access_prompt_mentions_tighter_caps(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        response = api_client.get("/api/payments/feature-access/")
+
+        assert response.status_code == 200
+        assert response.data["show_upgrade_prompt"] is True
+        assert response.data["download_limit_monthly"] == 10
+        assert response.data["upload_limit_monthly"] == 2
+        assert response.data["group_limit"] == 1
+        assert "new accounts start on the free plan" in response.data["upgrade_prompt"]["message"].lower()
+        assert "10 downloads/mo" in response.data["upgrade_prompt"]["message"]
+        assert "2 uploads/mo" in response.data["upgrade_prompt"]["message"]
+        assert "1 study group" in response.data["upgrade_prompt"]["message"]
 
     def test_admin_trial_uses_premium_for_seven_days(self, api_client):
         admin_user = get_user_model().objects.create_user(
@@ -1078,6 +1207,62 @@ def test_paypal_provider_verify_payment_captures_approved_order(settings):
     assert result["status"] == "COMPLETED"
     assert result["order_id"] == "ORDER123"
     assert result["capture_id"] == "CAPTURE123"
+
+
+def test_paypal_provider_create_payment_normalizes_urls_and_amount(settings):
+    settings.PAYPAL_CLIENT_ID = "paypal-client-id"
+    settings.PAYPAL_CLIENT_SECRET = "paypal-client-secret"
+    settings.BASE_URL = "https://api.example.com"
+    provider = PayPalPaymentProvider()
+    captured = {}
+
+    class MockResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["payload"] = json
+        return MockResponse(
+            201,
+            {
+                "id": "ORDER-NEW-123",
+                "links": [
+                    {"rel": "approve", "href": "https://www.sandbox.paypal.com/checkoutnow?token=ORDER-NEW-123"}
+                ],
+            },
+        )
+
+    with patch.object(provider, "_get_access_token", return_value="test-token"), patch(
+        "requests.post",
+        side_effect=fake_post,
+    ):
+        result = provider.create_payment(
+            Decimal("121.6666667"),
+            "USD",
+            {
+                "description": "Storage upgrade",
+                "success_url": "/settings/billing/success/",
+                "cancel_url": "/settings/billing/cancel/",
+            },
+        )
+
+    assert result["success"] is True
+    assert captured["url"].endswith("/v2/checkout/orders")
+    assert captured["payload"]["purchase_units"][0]["amount"]["value"] == "121.67"
+    assert (
+        captured["payload"]["application_context"]["return_url"]
+        == "https://api.example.com/settings/billing/success/"
+    )
+    assert (
+        captured["payload"]["application_context"]["cancel_url"]
+        == "https://api.example.com/settings/billing/cancel/"
+    )
 
 
 def test_validate_apple_receipt_uses_verify_receipt(settings):

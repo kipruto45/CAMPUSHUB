@@ -3,6 +3,7 @@ AI API Views for CampusHub
 Provides REST endpoints for AI services
 """
 
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
@@ -20,7 +21,8 @@ from apps.ai.services import (
     ChatResponse,
 )
 from apps.ai.models import StudyGoal, StudyGoalMilestone, GoalReminder
-from apps.payments.freemium import Feature, can_access_feature
+from apps.core.models import APIUsageLog
+from apps.payments.freemium import Feature, can_access_feature, get_plan_limitation, get_user_tier_info
 
 
 def _feature_access_denied(user, feature: Feature):
@@ -35,6 +37,41 @@ def _feature_access_denied(user, feature: Feature):
             "upgrade_url": "/settings/billing/upgrade/",
         },
         status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _ai_chat_limit_denied(user, _request_path: str):
+    limit = get_plan_limitation(user, "ai_messages_per_day")
+    if limit < 0:
+        return None
+
+    start_of_day = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    used_today = APIUsageLog.objects.filter(
+        user=user,
+        endpoint__endswith="/ai/chat/",
+        method="POST",
+        status_code__lt=400,
+        created_at__gte=start_of_day,
+    ).count()
+
+    if used_today < limit:
+        return None
+
+    tier_info = get_user_tier_info(user)
+    tier_name = tier_info.name if tier_info else "current"
+    return Response(
+        {
+            "error": "Daily AI chat limit reached",
+            "reason": (
+                f"You have used all {limit} AI chat messages available today on your "
+                f"{tier_name} plan. Upgrade for higher limits."
+            ),
+            "feature": Feature.AI_CHAT.value,
+            "limit": limit,
+            "used_today": used_today,
+            "upgrade_url": "/settings/billing/upgrade/",
+        },
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
 
 
@@ -224,6 +261,10 @@ class AIChatbotView(APIView):
         denied_response = _feature_access_denied(request.user, Feature.AI_CHAT)
         if denied_response:
             return denied_response
+
+        limit_denied = _ai_chat_limit_denied(request.user, request.path)
+        if limit_denied:
+            return limit_denied
 
         message = request.data.get('message', '')
         clear_context = request.data.get('clear_context', False)

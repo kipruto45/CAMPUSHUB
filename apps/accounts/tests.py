@@ -78,7 +78,7 @@ class TestRegistrationAndVerification:
         assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
         assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
 
-    def test_verified_web_login_auto_starts_student_trial(self, api_client, test_user):
+    def test_verified_web_login_keeps_student_on_free_plan_by_default(self, api_client, test_user):
         test_user.is_verified = True
         test_user.save(update_fields=["is_verified", "updated_at"])
 
@@ -89,10 +89,7 @@ class TestRegistrationAndVerification:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        subscription = Subscription.objects.get(user=test_user, status="trialing")
-        assert subscription.plan.tier == "basic"
-        assert subscription.metadata.get("trial") is True
-        assert subscription.metadata.get("trial_duration_days") == 7
+        assert not Subscription.objects.filter(user=test_user, status="trialing").exists()
 
     def test_resend_verification_uses_verification_email_template(
         self, api_client, test_user, mailoutbox
@@ -120,7 +117,7 @@ class TestRegistrationAndVerification:
         assert response.data["code"] == EMAIL_NOT_VERIFIED_CODE
         assert response.data["detail"] == EMAIL_NOT_VERIFIED_MESSAGE
 
-    def test_verified_mobile_login_auto_starts_student_trial(self, api_client, test_user):
+    def test_verified_mobile_login_keeps_student_on_free_plan_by_default(self, api_client, test_user):
         test_user.is_verified = True
         test_user.save(update_fields=["is_verified", "updated_at"])
 
@@ -131,10 +128,7 @@ class TestRegistrationAndVerification:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        subscription = Subscription.objects.get(user=test_user, status="trialing")
-        assert subscription.plan.tier == "basic"
-        assert subscription.metadata.get("trial") is True
-        assert subscription.metadata.get("trial_duration_days") == 7
+        assert not Subscription.objects.filter(user=test_user, status="trialing").exists()
 
     def test_passkey_auth_blocks_unverified_user(self, api_client, monkeypatch):
         monkeypatch.setattr(

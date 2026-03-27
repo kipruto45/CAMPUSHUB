@@ -28,11 +28,20 @@ class GoogleDriveService:
     AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
     TOKEN_URL = 'https://oauth2.googleapis.com/token'
     API_BASE_URL = 'https://www.googleapis.com/drive/v3'
+
+    @classmethod
+    def _ensure_configured(cls) -> None:
+        if not str(getattr(settings, 'GOOGLE_CLIENT_ID', '') or '').strip():
+            raise ValueError('Google Drive is not configured right now.')
+        if not str(getattr(settings, 'GOOGLE_CLIENT_SECRET', '') or '').strip():
+            raise ValueError('Google Drive is not configured right now.')
     
     @classmethod
     def get_authorization_url(cls, redirect_uri: str, state: str = None) -> str:
         """Generate OAuth authorization URL"""
         from urllib.parse import urlencode
+
+        cls._ensure_configured()
         
         params = {
             'client_id': settings.GOOGLE_CLIENT_ID,
@@ -50,6 +59,7 @@ class GoogleDriveService:
     @classmethod
     def exchange_code_for_tokens(cls, code: str, redirect_uri: str) -> Dict[str, Any]:
         """Exchange authorization code for access and refresh tokens"""
+        cls._ensure_configured()
         data = {
             'client_id': settings.GOOGLE_CLIENT_ID,
             'client_secret': settings.GOOGLE_CLIENT_SECRET,
@@ -65,6 +75,7 @@ class GoogleDriveService:
     @classmethod
     def refresh_access_token(cls, refresh_token: str) -> Dict[str, Any]:
         """Refresh access token using refresh token"""
+        cls._ensure_configured()
         data = {
             'client_id': settings.GOOGLE_CLIENT_ID,
             'client_secret': settings.GOOGLE_CLIENT_SECRET,
@@ -222,11 +233,20 @@ class OneDriveService:
     API_BASE_URL = 'https://graph.microsoft.com/v1.0'
     
     SCOPES = ['Files.ReadWrite.All', 'User.Read']
+
+    @classmethod
+    def _ensure_configured(cls) -> None:
+        if not str(getattr(settings, 'MICROSOFT_CLIENT_ID', '') or '').strip():
+            raise ValueError('Microsoft cloud storage is not configured right now.')
+        if not str(getattr(settings, 'MICROSOFT_CLIENT_SECRET', '') or '').strip():
+            raise ValueError('Microsoft cloud storage is not configured right now.')
     
     @classmethod
     def get_authorization_url(cls, redirect_uri: str, state: str = None) -> str:
         """Generate OAuth authorization URL"""
         from urllib.parse import urlencode
+
+        cls._ensure_configured()
         
         params = {
             'client_id': settings.MICROSOFT_CLIENT_ID,
@@ -243,6 +263,7 @@ class OneDriveService:
     @classmethod
     def exchange_code_for_tokens(cls, code: str, redirect_uri: str) -> Dict[str, Any]:
         """Exchange authorization code for access and refresh tokens"""
+        cls._ensure_configured()
         data = {
             'client_id': settings.MICROSOFT_CLIENT_ID,
             'client_secret': settings.MICROSOFT_CLIENT_SECRET,
@@ -259,6 +280,7 @@ class OneDriveService:
     @classmethod
     def refresh_access_token(cls, refresh_token: str) -> Dict[str, Any]:
         """Refresh access token using refresh token"""
+        cls._ensure_configured()
         data = {
             'client_id': settings.MICROSOFT_CLIENT_ID,
             'client_secret': settings.MICROSOFT_CLIENT_SECRET,
@@ -395,6 +417,7 @@ class CloudStorageService:
                 'token_expires_at': timezone.now() + timedelta(seconds=token_data.get('expires_in', 3600)),
                 'storage_used': storage_info.get('storage_used', 0),
                 'storage_total': storage_info.get('storage_total', 0),
+                'is_active': True,
             }
         )
         
@@ -425,6 +448,7 @@ class CloudStorageService:
                 'token_expires_at': timezone.now() + timedelta(seconds=token_data.get('expires_in', 3600)),
                 'storage_used': storage_info.get('storage_used', 0),
                 'storage_total': storage_info.get('storage_total', 0),
+                'is_active': True,
             }
         )
         

@@ -4,7 +4,7 @@ Provides endpoints for subscriptions, payments, and billing management.
 """
 
 import logging
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
@@ -652,9 +652,25 @@ class StorageUpgradeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Calculate price (example: $2/GB/month)
+        provider_key = payment_service._resolve_provider(provider)
+        provider_status = _provider_status_payload().get(provider_key, {})
+        if not provider_status.get("configured"):
+            return Response(
+                {
+                    "error": provider_status.get("error")
+                    or f"{provider_key.replace('_', ' ').title()} is not configured",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_url = getattr(settings, "BASE_URL", "http://localhost:8000").rstrip("/")
+        currency = "KES" if provider_key == "mobile_money" else "USD"
+
+        # Calculate price (example: $2/GB/month) and keep provider payloads schema-safe.
         price_per_gb = Decimal("2.00")
-        total_price = (price_per_gb * Decimal(storage_gb) * Decimal(duration_days)) / Decimal(30)
+        total_price = (
+            (price_per_gb * Decimal(storage_gb) * Decimal(duration_days)) / Decimal(30)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # Create pending upgrade record
         upgrade = StorageUpgrade.objects.create(
@@ -666,9 +682,9 @@ class StorageUpgradeView(APIView):
         )
 
         result = payment_service.create_payment(
-            provider=provider,
+            provider=provider_key,
             amount=total_price,
-            currency="USD",
+            currency=currency,
             description="Storage upgrade",
             user=request.user,
             payment_type="one_time",
@@ -676,6 +692,8 @@ class StorageUpgradeView(APIView):
             upgrade_id=str(upgrade.id),
             storage_gb=storage_gb,
             duration_days=duration_days,
+            success_url=f"{base_url}/settings/billing/success/",
+            cancel_url=f"{base_url}/settings/billing/cancel/",
             phone_number=phone_number,
         )
 
@@ -683,9 +701,10 @@ class StorageUpgradeView(APIView):
             upgrade.payment_id = result.get("local_payment_id")
             upgrade.save(update_fields=["payment", "updated_at"])
             return Response({
-                "provider": provider,
+                "provider": provider_key,
                 "upgrade_id": str(upgrade.id),
                 "amount": str(total_price),
+                "currency": currency,
                 "checkout_url": result.get("checkout_url"),
                 "instructions": result.get("instructions"),
                 "payment_id": result.get("local_payment_id"),
@@ -1198,12 +1217,18 @@ class UserTierView(APIView):
                 "download_limit_monthly": access_summary.get("download_limit_monthly"),
                 "upload_limit_monthly": access_summary.get("upload_limit_monthly"),
                 "message_limit_daily": access_summary.get("message_limit_daily"),
+                "ai_messages_per_day": access_summary.get("ai_messages_per_day"),
+                "ai_messages_used_today": access_summary.get("ai_messages_used_today"),
+                "ai_messages_remaining_today": access_summary.get("ai_messages_remaining_today"),
                 "group_limit": access_summary.get("group_limit"),
                 "bookmark_limit": access_summary.get("bookmark_limit"),
                 "event_limit_monthly": access_summary.get("event_limit_monthly"),
                 "points_limit_monthly": access_summary.get("points_limit_monthly"),
                 "badge_limit": access_summary.get("badge_limit"),
                 "search_results_limit": access_summary.get("search_results_limit"),
+                "cloud_storage_accounts": access_summary.get("cloud_storage_accounts"),
+                "cloud_imports_per_month": access_summary.get("cloud_imports_per_month"),
+                "cloud_exports_per_month": access_summary.get("cloud_exports_per_month"),
                 "notification_delay_hours": access_summary.get("notification_delay_hours"),
                 "support_response_hours": access_summary.get("support_response_hours"),
                 "can_download_unlimited": access_summary.get("can_download_unlimited"),

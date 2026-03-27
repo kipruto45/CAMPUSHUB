@@ -36,14 +36,19 @@ class AnnouncementService:
             target_course__isnull=True,
             target_year_of_study__isnull=True,
         )
-        if user.faculty_id:
-            q |= Q(target_faculty_id=user.faculty_id)
-        if user.department_id:
-            q |= Q(target_department_id=user.department_id)
-        if user.course_id:
-            q |= Q(target_course_id=user.course_id)
-        if user.year_of_study:
-            q |= Q(target_year_of_study=user.year_of_study)
+        faculty_id = getattr(user, "faculty_id", None)
+        department_id = getattr(user, "department_id", None)
+        course_id = getattr(user, "course_id", None)
+        year_of_study = getattr(user, "year_of_study", None)
+
+        if faculty_id:
+            q |= Q(target_faculty_id=faculty_id)
+        if department_id:
+            q |= Q(target_department_id=department_id)
+        if course_id:
+            q |= Q(target_course_id=course_id)
+        if year_of_study:
+            q |= Q(target_year_of_study=year_of_study)
         queryset = queryset.filter(q)
 
         # Order by pinned first, then by published date
