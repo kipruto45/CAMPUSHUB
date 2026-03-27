@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from apps.core.exceptions import log_exception_response
 from apps.payments.freemium import Feature, can_access_feature
 
-from .models import CloudStorageAccount, CloudFile
+from .models import CloudStorageAccount, CloudFile, CloudImportHistory, CloudExportHistory
 from .services import CloudStorageService, GoogleDriveService, OneDriveService
 
 logger = logging.getLogger(__name__)
