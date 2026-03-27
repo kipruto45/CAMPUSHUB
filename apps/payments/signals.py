@@ -155,20 +155,51 @@ def sync_user_storage_from_subscription(user):
 
 def get_user_plan_limits(user):
     """Get effective plan limits for a user."""
-    from apps.payments.freemium import get_active_subscription
+    from apps.payments.freemium import (
+        TRIAL_LIMIT_OVERRIDES,
+        TIER_BOOKMARK_LIMITS,
+        TIER_DOWNLOAD_LIMITS,
+        TIER_EVENT_LIMITS,
+        TIER_GROUP_LIMITS,
+        TIER_MAX_UPLOAD_SIZE_MB,
+        TIER_MESSAGE_LIMITS,
+        TIER_NOTIFICATION_DELAY_HOURS,
+        TIER_POINTS_LIMITS,
+        TIER_SEARCH_RESULTS_LIMITS,
+        TIER_STORAGE_LIMITS,
+        TIER_SUPPORT_RESPONSE_HOURS,
+        TIER_UPLOAD_LIMITS,
+        TIER_BADGE_LIMITS,
+        Tier,
+        get_active_subscription,
+        get_tier_from_string,
+        get_trial_feature_exclusions,
+    )
     from apps.payments.models import StorageUpgrade
     from django.utils import timezone
     
     # Get base limits from plan
     limits = {
-        "storage_gb": 1,
-        "max_upload_mb": 10,
-        "downloads_monthly": 50,
+        "storage_gb": TIER_STORAGE_LIMITS[Tier.FREE],
+        "max_upload_mb": TIER_MAX_UPLOAD_SIZE_MB[Tier.FREE],
+        "downloads_monthly": TIER_DOWNLOAD_LIMITS[Tier.FREE],
+        "upload_limit_monthly": TIER_UPLOAD_LIMITS[Tier.FREE],
+        "message_limit_daily": TIER_MESSAGE_LIMITS[Tier.FREE],
+        "group_limit": TIER_GROUP_LIMITS[Tier.FREE],
+        "bookmark_limit": TIER_BOOKMARK_LIMITS[Tier.FREE],
+        "event_limit_monthly": TIER_EVENT_LIMITS[Tier.FREE],
+        "points_limit_monthly": TIER_POINTS_LIMITS[Tier.FREE],
+        "badge_limit": TIER_BADGE_LIMITS[Tier.FREE],
+        "search_results_limit": TIER_SEARCH_RESULTS_LIMITS[Tier.FREE],
+        "notification_delay_hours": TIER_NOTIFICATION_DELAY_HOURS[Tier.FREE],
+        "support_response_hours": TIER_SUPPORT_RESPONSE_HOURS[Tier.FREE],
         "unlimited_downloads": False,
         "has_ads": True,
         "priority_support": False,
         "analytics": False,
         "early_access": False,
+        "is_trial_limited": False,
+        "trial_locked_features": [],
     }
     
     # Get active subscription
@@ -179,12 +210,31 @@ def get_user_plan_limits(user):
             "storage_gb": subscription.plan.storage_limit_gb,
             "max_upload_mb": subscription.plan.max_upload_size_mb,
             "downloads_monthly": subscription.plan.download_limit_monthly,
+            "upload_limit_monthly": subscription.plan.upload_limit_monthly,
+            "message_limit_daily": subscription.plan.message_limit_daily,
+            "group_limit": subscription.plan.group_limit,
+            "bookmark_limit": subscription.plan.bookmark_limit,
+            "event_limit_monthly": subscription.plan.event_limit_monthly,
+            "points_limit_monthly": subscription.plan.points_limit_monthly,
+            "badge_limit": subscription.plan.badge_limit,
+            "search_results_limit": subscription.plan.search_results_limit,
+            "notification_delay_hours": subscription.plan.notification_delay_hours,
+            "support_response_hours": subscription.plan.support_response_hours,
             "unlimited_downloads": subscription.plan.can_download_unlimited,
             "has_ads": subscription.plan.has_ads,
             "priority_support": subscription.plan.has_priority_support,
             "analytics": subscription.plan.has_analytics,
             "early_access": subscription.plan.has_early_access,
         })
+
+        if subscription.status == "trialing":
+            tier = get_tier_from_string(subscription.plan.tier)
+            limits.update(TRIAL_LIMIT_OVERRIDES.get(tier, {}))
+            limits["is_trial_limited"] = True
+            limits["trial_locked_features"] = sorted(
+                feature.value
+                for feature in get_trial_feature_exclusions(user, subscription=subscription)
+            )
     
     # Add storage upgrades
     active_upgrades = StorageUpgrade.objects.filter(

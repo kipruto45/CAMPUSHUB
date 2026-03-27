@@ -88,9 +88,9 @@ def test_mobile_upload_requires_explicit_academic_selection_and_derives_year_fro
     assert response.data["success"] is True
 
     resource = Resource.objects.get(title="Lecture Notes", uploaded_by=user)
-    assert response.data["data"]["status"] == "approved"
-    assert resource.status == "approved"
-    assert resource.is_public is True
+    assert response.data["data"]["status"] == "pending"
+    assert resource.status == "pending"
+    assert resource.is_public is False
     assert resource.resource_type == "tutorial"
     assert resource.course_id == course_context["course"].id
     assert resource.department_id == course_context["department"].id
@@ -322,3 +322,81 @@ def test_upload_academic_endpoints_expose_active_admin_managed_records_only(
     assert {
         unit["code"] for unit in units_response.data["data"]["units"]
     } == {course_context["unit"].code}
+
+
+@pytest.mark.django_db
+def test_public_academic_endpoints_seed_exported_catalog_when_database_is_empty(
+    public_client,
+):
+    assert Faculty.objects.count() == 0
+    assert Department.objects.count() == 0
+    assert Course.objects.count() == 0
+    assert Unit.objects.count() == 0
+
+    faculties_response = public_client.get("/api/public/faculties/")
+
+    assert faculties_response.status_code == status.HTTP_200_OK
+    faculties = faculties_response.data["data"]["faculties"]
+    assert len(faculties) >= 5
+    assert Faculty.objects.count() >= 5
+
+    sbe = next(
+        faculty for faculty in faculties if faculty["code"] == "SBE"
+    )
+    departments_response = public_client.get(
+        "/api/public/departments/",
+        {"faculty_id": str(sbe["id"])},
+    )
+
+    assert departments_response.status_code == status.HTTP_200_OK
+    departments = departments_response.data["data"]["departments"]
+    assert any(department["code"] == "BE" for department in departments)
+
+
+@pytest.mark.django_db
+def test_export_seeded_academic_endpoints_filter_courses_and_units_by_year_and_semester(
+    authenticated_client,
+    public_client,
+):
+    faculty_response = public_client.get("/api/public/faculties/")
+    faculties = faculty_response.data["data"]["faculties"]
+    sbe = next(
+        faculty for faculty in faculties if faculty["code"] == "SBE"
+    )
+
+    departments_response = public_client.get(
+        "/api/public/departments/",
+        {"faculty_id": str(sbe["id"])},
+    )
+    departments = departments_response.data["data"]["departments"]
+    business_department = next(
+        department for department in departments if department["code"] == "BE"
+    )
+
+    courses_response = public_client.get(
+        "/api/public/courses/",
+        {
+            "department_id": str(business_department["id"]),
+            "semester": "1",
+            "year_of_study": "1",
+        },
+    )
+
+    assert courses_response.status_code == status.HTTP_200_OK
+    courses = courses_response.data["data"]["courses"]
+    banking_course = next(course for course in courses if course["code"] == "BBF")
+
+    units_response = authenticated_client.get(
+        f"/api/mobile/courses/{banking_course['id']}/units/",
+        {
+            "semester": "1",
+            "year_of_study": "1",
+        },
+    )
+
+    assert units_response.status_code == status.HTTP_200_OK
+    units = units_response.data["data"]["units"]
+    assert units
+    assert all(unit["semester"] == "1" for unit in units)
+    assert all(unit["year_of_study"] == 1 for unit in units)
+    assert any(unit["code"] == "BBAN 1101" for unit in units)

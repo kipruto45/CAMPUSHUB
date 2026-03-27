@@ -3,8 +3,10 @@ Tests for live_rooms app.
 """
 import pytest
 from django.contrib.auth import get_user_model
+from rest_framework.test import APIRequestFactory
 
 from apps.live_rooms.models import StudyRoom, RoomParticipant, RoomMessage, RoomRecording
+from apps.live_rooms.serializers import StudyRoomCreateSerializer
 
 User = get_user_model()
 
@@ -55,7 +57,7 @@ class TestStudyRoomModel:
             name="Test Room",
             host=user,
         )
-        assert room.participant_count == 0
+        assert room.participant_count == 1
 
 
 @pytest.mark.django_db
@@ -64,17 +66,45 @@ class TestRoomParticipantModel:
 
     def test_room_participant_creation(self, user):
         """Test room participant creation."""
+        other_user = User.objects.create_user(
+            email="another@example.com",
+            password="testpass123",
+        )
         room = StudyRoom.objects.create(
             name="Test Room",
             host=user,
         )
         participant = RoomParticipant.objects.create(
             room=room,
-            user=user,
-            role=RoomParticipant.Role.HOST,
+            user=other_user,
+            role=RoomParticipant.Role.PARTICIPANT,
         )
         assert participant.id is not None
+        assert participant.role == RoomParticipant.Role.PARTICIPANT
+
+    def test_create_serializer_adds_host_as_connected_participant(self, user):
+        request = APIRequestFactory().post("/api/live-rooms/rooms/", {})
+        request.user = user
+
+        serializer = StudyRoomCreateSerializer(
+            data={
+                "name": "Physics revision",
+                "description": "Finals prep",
+                "room_type": StudyRoom.RoomType.PUBLIC,
+                "max_participants": 12,
+                "is_recording_enabled": False,
+                "is_screen_share_enabled": True,
+            },
+            context={"request": request},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        room = serializer.save()
+        participant = RoomParticipant.objects.get(room=room, user=user)
+
         assert participant.role == RoomParticipant.Role.HOST
+        assert participant.status == RoomParticipant.Status.CONNECTED
+        assert participant.left_at is None
 
 
 @pytest.mark.django_db

@@ -3,6 +3,7 @@ Views for Calendar Sync API
 """
 
 from datetime import timedelta
+import requests
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
@@ -10,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import CalendarAccount, SyncedEvent, SyncSettings
-from .services import CalendarSyncService
+from .services import CalendarSyncService, exchange_calendar_code, get_calendar_oauth_service
 from .serializers import (
     CalendarAccountSerializer,
     SyncedEventSerializer,
@@ -54,7 +55,7 @@ class SyncCalendarView(generics.CreateAPIView):
     """Trigger a calendar sync"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, pk):
+    def post(self, request, pk, *args, **kwargs):
         try:
             account = CalendarAccount.objects.get(pk=pk, user=request.user, is_active=True)
         except CalendarAccount.DoesNotExist:
@@ -97,38 +98,36 @@ class ConnectGoogleView(generics.CreateAPIView):
     """Initiate Google Calendar OAuth flow"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        # In a real implementation, this would:
-        # 1. Generate OAuth URL with Google
-        # 2. Return the URL to the frontend
-        # 3. Handle the callback
-        
+    def post(self, request, *args, **kwargs):
         from django.conf import settings
-        
-        redirect_uri = request.data.get('redirect_uri', '')
-        
-        # Google OAuth configuration
+
         google_client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '')
-        
         if not google_client_id:
             return Response(
                 {'error': 'Google OAuth not configured'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
-        
-        # Build OAuth URL
-        auth_url = (
-            f"https://accounts.google.com/o/oauth2/v2/auth?"
-            f"client_id={google_client_id}&"
-            f"redirect_uri={redirect_uri}&"
-            f"response_type=code&"
-            f"scope=https://www.googleapis.com/auth/calendar.events.readonly&"
-            f"access_type=offline"
+
+        redirect_uri = (
+            str(request.data.get('redirect_uri') or '').strip()
+            or str(getattr(settings, 'GOOGLE_REDIRECT_URI', '') or '').strip()
         )
-        
+        if not redirect_uri:
+            return Response(
+                {'error': 'Google redirect URI not configured'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        state = str(request.data.get('state') or '').strip()
+        auth_url = get_calendar_oauth_service('google').get_authorization_url(
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+
         return Response({
             'auth_url': auth_url,
             'provider': 'google',
+            'redirect_uri': redirect_uri,
         })
 
 
@@ -136,65 +135,113 @@ class ConnectOutlookView(generics.CreateAPIView):
     """Initiate Outlook Calendar OAuth flow"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         from django.conf import settings
-        
-        redirect_uri = request.data.get('redirect_uri', '')
-        
-        # Microsoft OAuth configuration
+
         microsoft_client_id = getattr(settings, 'MICROSOFT_CLIENT_ID', '')
-        
         if not microsoft_client_id:
             return Response(
                 {'error': 'Microsoft OAuth not configured'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
-        
-        # Build OAuth URL
-        auth_url = (
-            f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
-            f"client_id={microsoft_client_id}&"
-            f"redirect_uri={redirect_uri}&"
-            f"response_type=code&"
-            f"scope=Calendars.ReadWrite offline_access"
+
+        redirect_uri = (
+            str(request.data.get('redirect_uri') or '').strip()
+            or str(getattr(settings, 'MICROSOFT_REDIRECT_URI', '') or '').strip()
         )
-        
+        if not redirect_uri:
+            return Response(
+                {'error': 'Microsoft redirect URI not configured'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        state = str(request.data.get('state') or '').strip()
+        auth_url = get_calendar_oauth_service('outlook').get_authorization_url(
+            redirect_uri=redirect_uri,
+            state=state,
+        )
+
         return Response({
             'auth_url': auth_url,
             'provider': 'outlook',
+            'redirect_uri': redirect_uri,
         })
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def handle_oauth_callback(request):
+def handle_oauth_callback(request, *args, **kwargs):
     """Handle OAuth callback from Google or Outlook"""
-    provider = request.data.get('provider')
-    code = request.data.get('code')
+    provider = str(request.data.get('provider') or '').strip().lower()
+    code = str(request.data.get('code') or '').strip()
+    redirect_uri = str(request.data.get('redirect_uri') or '').strip()
     
     if not provider or not code:
         return Response(
             {'error': 'Missing provider or code'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # In production, exchange code for tokens
-    # This is a placeholder implementation
-    
-    # Create or update calendar account
+
+    if provider not in {'google', 'outlook'}:
+        return Response(
+            {'error': 'Unsupported provider'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        exchange_result = exchange_calendar_code(
+            provider=provider,
+            code=code,
+            redirect_uri=redirect_uri,
+        )
+    except ValueError as exc:
+        return Response(
+            {'error': str(exc)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except requests.RequestException as exc:
+        return Response(
+            {'error': f'Failed to exchange calendar authorization code: {exc}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    tokens = exchange_result['tokens']
+    user_info = exchange_result['user_info']
+    email = (
+        str(
+            user_info.get('email')
+            or user_info.get('mail')
+            or user_info.get('userPrincipalName')
+            or request.data.get('email')
+            or request.user.email
+            or ''
+        ).strip().lower()
+    )
+    calendar_id = str(request.data.get('calendar_id') or 'primary').strip() or 'primary'
+
+    account = CalendarAccount.objects.filter(
+        user=request.user,
+        provider=provider,
+        email=email,
+    ).first()
+    existing_refresh_token = account.refresh_token if account else ''
+
     account, created = CalendarAccount.objects.update_or_create(
         user=request.user,
         provider=provider,
-        email=request.data.get('email', ''),
+        email=email,
         defaults={
-            'access_token': 'placeholder_token',
-            'refresh_token': 'placeholder_refresh',
-            'token_expires_at': timezone.now() + timedelta(hours=1),
-            'calendar_id': request.data.get('calendar_id', 'primary'),
+            'access_token': str(tokens.get('access_token') or '').strip(),
+            'refresh_token': str(tokens.get('refresh_token') or existing_refresh_token or '').strip(),
+            'token_expires_at': timezone.now() + timedelta(
+                seconds=int(tokens.get('expires_in', 3600) or 3600)
+            ),
+            'calendar_id': calendar_id,
             'is_active': True,
+            'sync_enabled': True,
         }
     )
-    
+
     return Response(
         CalendarAccountSerializer(account).data,
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
@@ -203,7 +250,7 @@ def handle_oauth_callback(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def push_event_to_calendar(request):
+def push_event_to_calendar(request, *args, **kwargs):
     """Push a CampusHub event to connected calendars"""
     calendar_id = request.data.get('calendar_id')
     event_id = request.data.get('event_id')

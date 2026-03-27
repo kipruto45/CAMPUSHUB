@@ -5,19 +5,29 @@ Handles subscription management, payment processing, and webhooks.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from hashlib import sha256
+from pathlib import Path
 from decimal import Decimal
 from typing import Any, Optional
+from urllib.parse import quote
 
 try:
     import stripe
 except ImportError:  # pragma: no cover - exercised in production fallback
     stripe = None
 
+import requests
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +41,32 @@ def _require_stripe_sdk() -> None:
         raise StripeUnavailableError(
             "Stripe SDK is not installed. Add `stripe` to dependencies."
         )
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding_needed = (-len(data)) % 4
+    return base64.urlsafe_b64decode(f"{data}{'=' * padding_needed}")
+
+
+def _parse_millis_timestamp(value: Any):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        if raw.isdigit():
+            return datetime.fromtimestamp(int(raw) / 1000, tz=dt_timezone.utc)
+        parsed = parse_datetime(raw)
+        if parsed is not None:
+            if timezone.is_naive(parsed):
+                return timezone.make_aware(parsed, dt_timezone.utc)
+            return parsed
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 
 class StripeService:
@@ -538,35 +574,212 @@ class InAppPurchaseService:
 
     # ============== Apple App Store (StoreKit 2) ==============
 
-    def validate_apple_receipt(self, receipt_data: str, shared_secret: str = None) -> dict:
-        """Validate Apple receipt with App Store.
-        
-        Note: In production, use StoreKit 2 server APIs for validation.
-        This is a simplified implementation.
-        """
-        import base64
-        import json
+    def _calculate_period_end(self, product, validation: dict = None):
+        validation = validation or {}
+        expires_date = validation.get("expires_date")
+        if expires_date:
+            return expires_date
 
-        # In production, send receipt to Apple for validation
-        # POST https://buy.itunes.apple.com/verifyReceipt
-        # For subscriptions: POST https://buy.itunes.apple.com/verifyReceipt
+        period_start = validation.get("period_start") or timezone.now()
+        if product.product_type != "subscription":
+            return None
+        if product.subscription_type == "monthly":
+            return period_start + timedelta(days=30)
+        if product.subscription_type == "yearly":
+            return period_start + timedelta(days=365)
+        return None
 
+    def _parse_apple_receipt_fallback(self, receipt_data: str) -> dict:
         try:
-            # Decode receipt (in production, send to Apple)
             receipt_payload = json.loads(base64.b64decode(receipt_data))
-
-            return {
-                "success": True,
-                "receipt": receipt_payload,
-                "status": 0,  # 0 = valid receipt
-            }
-        except Exception as e:
-            logger.error(f"Apple receipt validation failed: {e}")
+        except Exception as exc:
+            logger.error("Apple receipt validation failed: %s", exc)
             return {
                 "success": False,
-                "error": str(e),
+                "error": str(exc),
                 "status": -1,
             }
+
+        expires_date = _parse_millis_timestamp(
+            receipt_payload.get("expires_date_ms")
+            or receipt_payload.get("expiresDate")
+        )
+
+        return {
+            "success": True,
+            "receipt": receipt_payload,
+            "status": 0,
+            "validation_source": "fallback",
+            "product_id": receipt_payload.get("product_id") or receipt_payload.get("productId"),
+            "transaction_id": receipt_payload.get("transaction_id") or receipt_payload.get("transactionId"),
+            "original_transaction_id": receipt_payload.get("original_transaction_id")
+            or receipt_payload.get("originalTransactionId"),
+            "expires_date": expires_date,
+            "auto_renew_enabled": receipt_payload.get("auto_renew_status") not in {False, "false", "0", 0},
+        }
+
+    def _normalize_apple_validation(self, payload: dict, sandbox: bool) -> dict:
+        latest_entry = None
+        latest_receipt_info = payload.get("latest_receipt_info") or []
+        in_app_items = payload.get("receipt", {}).get("in_app") or []
+        candidates = latest_receipt_info or in_app_items
+        if isinstance(candidates, list) and candidates:
+            latest_entry = max(
+                candidates,
+                key=lambda entry: int(
+                    str(
+                        entry.get("expires_date_ms")
+                        or entry.get("purchase_date_ms")
+                        or "0"
+                    )
+                ),
+            )
+
+        expires_date = _parse_millis_timestamp(
+            (latest_entry or {}).get("expires_date_ms")
+            or (latest_entry or {}).get("expiresDate")
+        )
+
+        return {
+            "success": True,
+            "status": payload.get("status", 0),
+            "receipt": payload,
+            "validation_source": "apple_verify_receipt",
+            "environment": "sandbox" if sandbox else "production",
+            "product_id": (latest_entry or {}).get("product_id"),
+            "transaction_id": (latest_entry or {}).get("transaction_id"),
+            "original_transaction_id": (latest_entry or {}).get("original_transaction_id"),
+            "expires_date": expires_date,
+            "auto_renew_enabled": True,
+            "raw_latest_receipt_info": latest_entry or {},
+        }
+
+    def _verify_apple_receipt(self, receipt_data: str, shared_secret: str) -> dict:
+        endpoints = ["https://buy.itunes.apple.com/verifyReceipt"]
+        if getattr(settings, "APPLE_IAP_USE_SANDBOX", False):
+            endpoints = ["https://sandbox.itunes.apple.com/verifyReceipt"]
+
+        payload = {
+            "receipt-data": receipt_data,
+        }
+        if shared_secret:
+            payload["password"] = shared_secret
+        payload["exclude-old-transactions"] = True
+
+        for index, endpoint in enumerate(endpoints):
+            response = requests.post(
+                endpoint,
+                json=payload,
+                timeout=getattr(settings, "APPLE_IAP_TIMEOUT_SECONDS", 30),
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Apple returns 21007 when a sandbox receipt is sent to production.
+            if data.get("status") == 21007 and "sandbox" not in endpoint:
+                endpoints.append("https://sandbox.itunes.apple.com/verifyReceipt")
+                continue
+            if data.get("status") == 21008 and "sandbox" in endpoint and index == 0:
+                endpoints.append("https://buy.itunes.apple.com/verifyReceipt")
+                continue
+
+            if data.get("status") != 0:
+                return {
+                    "success": False,
+                    "status": data.get("status"),
+                    "error": data.get("exception") or f"Apple receipt validation failed with status {data.get('status')}",
+                    "receipt": data,
+                }
+
+            return self._normalize_apple_validation(data, sandbox="sandbox" in endpoint)
+
+        return {
+            "success": False,
+            "status": -1,
+            "error": "Apple receipt validation did not return a usable response",
+        }
+
+    def validate_apple_receipt(self, receipt_data: str, shared_secret: str = None) -> dict:
+        """Validate Apple receipt with App Store.
+        """
+        effective_secret = str(
+            shared_secret or getattr(settings, "APPLE_IAP_SHARED_SECRET", "") or ""
+        ).strip()
+        if effective_secret:
+            try:
+                return self._verify_apple_receipt(receipt_data, effective_secret)
+            except requests.RequestException as exc:
+                logger.warning(
+                    "Apple verifyReceipt request failed, falling back to local receipt parsing: %s",
+                    exc,
+                )
+        return self._parse_apple_receipt_fallback(receipt_data)
+
+    def _load_google_service_account_info(self) -> dict:
+        inline_json = str(getattr(settings, "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON", "") or "").strip()
+        inline_b64 = str(getattr(settings, "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64", "") or "").strip()
+        path_value = str(getattr(settings, "GOOGLE_PLAY_SERVICE_ACCOUNT_PATH", "") or "").strip()
+
+        raw_payload = ""
+        if inline_json:
+            raw_payload = inline_json
+        elif inline_b64:
+            raw_payload = base64.b64decode(inline_b64).decode("utf-8")
+        elif path_value:
+            raw_payload = Path(path_value).expanduser().read_text(encoding="utf-8")
+
+        if not raw_payload:
+            return {}
+
+        try:
+            return json.loads(raw_payload)
+        except json.JSONDecodeError:
+            logger.exception("Invalid GOOGLE_PLAY service account JSON provided")
+            return {}
+
+    def _get_google_access_token(self) -> str:
+        service_account = self._load_google_service_account_info()
+        if not service_account:
+            return ""
+
+        client_email = str(service_account.get("client_email") or "").strip()
+        private_key = str(service_account.get("private_key") or "").strip()
+        token_uri = str(service_account.get("token_uri") or "https://oauth2.googleapis.com/token").strip()
+
+        if not client_email or not private_key:
+            return ""
+
+        now = int(timezone.now().timestamp())
+        header = {"alg": "RS256", "typ": "JWT"}
+        claims = {
+            "iss": client_email,
+            "scope": "https://www.googleapis.com/auth/androidpublisher",
+            "aud": token_uri,
+            "iat": now,
+            "exp": now + 3600,
+        }
+        signing_input = f"{_b64url_encode(json.dumps(header, separators=(',', ':')).encode())}.{_b64url_encode(json.dumps(claims, separators=(',', ':')).encode())}"
+
+        private_key_obj = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=None,
+        )
+        signature = private_key_obj.sign(
+            signing_input.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        assertion = f"{signing_input}.{_b64url_encode(signature)}"
+        response = requests.post(
+            token_uri,
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": assertion,
+            },
+            timeout=getattr(settings, "GOOGLE_PLAY_TIMEOUT_SECONDS", 30),
+        )
+        response.raise_for_status()
+        return str(response.json().get("access_token") or "").strip()
 
     def process_apple_purchase(
         self,
@@ -576,58 +789,62 @@ class InAppPurchaseService:
         receipt_data: str = None
     ) -> dict:
         """Process Apple in-app purchase."""
-        from apps.payments.models import InAppProduct, InAppPurchase
-        from django.utils import timezone
+        from apps.payments.models import InAppPurchase
 
         # Get product
         product = self.get_product_by_platform_id("apple", product_id)
         if not product:
             return {"success": False, "error": "Product not found"}
 
+        validation = {}
         # Validate receipt
         if receipt_data:
             validation = self.validate_apple_receipt(receipt_data)
             if not validation.get("success"):
-                return {"success": False, "error": "Invalid receipt"}
+                return {"success": False, "error": validation.get("error") or "Invalid receipt"}
+
+        resolved_transaction_id = str(
+            validation.get("transaction_id") or transaction_id or ""
+        ).strip()
+        if not resolved_transaction_id:
+            return {"success": False, "error": "Transaction id is required"}
 
         # Check for existing purchase
         existing = InAppPurchase.objects.filter(
             user=user,
             platform="apple",
-            apple_transaction_id=transaction_id
+            apple_transaction_id=resolved_transaction_id
         ).first()
 
         if existing:
             return {"success": True, "purchase": existing, "already_processed": True}
 
-        # Calculate subscription period
         period_start = timezone.now()
-        period_end = None
-
-        if product.product_type == "subscription":
-            if product.subscription_type == "monthly":
-                from datetime import timedelta
-                period_end = period_start + timedelta(days=30)
-            elif product.subscription_type == "yearly":
-                from datetime import timedelta
-                period_end = period_start + timedelta(days=365)
+        period_end = self._calculate_period_end(product, validation)
+        original_transaction_id = str(
+            validation.get("original_transaction_id") or resolved_transaction_id
+        ).strip()
 
         # Create purchase record
         purchase = InAppPurchase.objects.create(
             user=user,
             product=product,
             platform="apple",
-            apple_transaction_id=transaction_id,
+            apple_transaction_id=resolved_transaction_id,
             status="active",
             is_subscription=product.product_type == "subscription",
             subscription_type=product.subscription_type,
             period_start=period_start,
             period_end=period_end,
             expires_date=period_end,
+            auto_renew_enabled=bool(validation.get("auto_renew_enabled", product.product_type == "subscription")),
+            original_transaction_id=original_transaction_id,
             amount=product.price,
             currency=product.currency,
             metadata={
-                "receipt_data": receipt_data[:500] if receipt_data else None,
+                "receipt_hash": sha256(receipt_data.encode("utf-8")).hexdigest() if receipt_data else None,
+                "validation_source": validation.get("validation_source"),
+                "environment": validation.get("environment"),
             }
         )
 
@@ -650,10 +867,13 @@ class InAppPurchaseService:
     ) -> dict:
         """Handle Apple subscription renewal."""
         from apps.payments.models import InAppPurchase
-        from django.utils import timezone
 
         # Find original purchase
         purchase = InAppPurchase.objects.filter(
+            user=user,
+            platform="apple",
+            original_transaction_id=original_transaction_id
+        ).first() or InAppPurchase.objects.filter(
             user=user,
             platform="apple",
             apple_transaction_id=original_transaction_id
@@ -664,9 +884,12 @@ class InAppPurchaseService:
 
         # Update with new transaction
         purchase.apple_transaction_id = new_transaction_id
-        purchase.expires_date = timezone.parse(expires_date) if expires_date else None
+        parsed_expires_at = _parse_millis_timestamp(expires_date)
+        purchase.period_end = parsed_expires_at
+        purchase.expires_date = parsed_expires_at
         purchase.auto_renew_enabled = True
-        purchase.save()
+        purchase.status = "active"
+        purchase.save(update_fields=["apple_transaction_id", "period_end", "expires_date", "auto_renew_enabled", "status", "updated_at"])
 
         return {"success": True, "purchase": purchase}
 
@@ -688,7 +911,7 @@ class InAppPurchaseService:
             return {"success": False, "error": "Purchase not found"}
 
         purchase.auto_renew_enabled = False
-        purchase.save()
+        purchase.save(update_fields=["auto_renew_enabled", "updated_at"])
 
         return {"success": True, "purchase": purchase}
 
@@ -701,18 +924,104 @@ class InAppPurchaseService:
         package_name: str = None
     ) -> dict:
         """Validate Google Play purchase.
-        
-        Note: In production, use Google Play Developer API for validation.
         """
-        # In production, use Google Play Developer API
-        # POST https://androidpublisher.googleapis.com/androidpublisher/v3/
-        # applications/{packageName}/purchases/subscriptions/{subscriptionId}/tokens/{token}
+        package_name = (
+            str(package_name or "").strip()
+            or str(getattr(settings, "GOOGLE_PLAY_PACKAGE_NAME", "") or "").strip()
+        )
+        product = self.get_product_by_platform_id("google", product_id)
 
-        return {
-            "success": True,
-            "purchase_token": purchase_token,
-            "acknowledged": True,
-        }
+        if not package_name:
+            if getattr(settings, "GOOGLE_PLAY_STRICT_VALIDATION", False):
+                return {"success": False, "error": "Google Play package name is not configured"}
+            return {
+                "success": True,
+                "purchase_token": purchase_token,
+                "acknowledged": True,
+                "validation_source": "fallback",
+            }
+
+        access_token = ""
+        try:
+            access_token = self._get_google_access_token()
+        except Exception as exc:
+            logger.warning("Failed to fetch Google Play access token: %s", exc)
+
+        if not access_token:
+            if getattr(settings, "GOOGLE_PLAY_STRICT_VALIDATION", False):
+                return {"success": False, "error": "Google Play service account is not configured"}
+            return {
+                "success": True,
+                "purchase_token": purchase_token,
+                "acknowledged": True,
+                "validation_source": "fallback",
+            }
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        timeout = getattr(settings, "GOOGLE_PLAY_TIMEOUT_SECONDS", 30)
+
+        try:
+            if product and product.product_type == "subscription":
+                url = (
+                    "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+                    f"applications/{quote(package_name, safe='')}/purchases/subscriptionsv2/tokens/{quote(purchase_token, safe='')}"
+                )
+                response = requests.get(url, headers=headers, timeout=timeout)
+                response.raise_for_status()
+                data = response.json()
+                line_items = data.get("lineItems") or []
+                latest_item = line_items[0] if line_items else {}
+                expiry_time = _parse_millis_timestamp(
+                    latest_item.get("expiryTime")
+                    or latest_item.get("expiryTimeMillis")
+                )
+                subscription_state = str(data.get("subscriptionState") or "")
+                return {
+                    "success": True,
+                    "purchase_token": purchase_token,
+                    "acknowledged": data.get("acknowledgementState") in {"ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED", 1},
+                    "expires_date": expiry_time,
+                    "order_id": data.get("latestOrderId"),
+                    "auto_renew_enabled": subscription_state not in {
+                        "SUBSCRIPTION_STATE_CANCELED",
+                        "SUBSCRIPTION_STATE_EXPIRED",
+                        "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED",
+                    },
+                    "subscription_state": subscription_state,
+                    "linked_purchase_token": data.get("linkedPurchaseToken"),
+                    "raw": data,
+                    "validation_source": "google_play_api",
+                }
+
+            url = (
+                "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+                f"applications/{quote(package_name, safe='')}/purchases/products/{quote(product_id, safe='')}/tokens/{quote(purchase_token, safe='')}"
+            )
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            purchase_state = int(data.get("purchaseState", 0) or 0)
+            return {
+                "success": purchase_state == 0,
+                "purchase_token": purchase_token,
+                "acknowledged": int(data.get("acknowledgementState", 0) or 0) == 1,
+                "order_id": data.get("orderId"),
+                "purchase_state": purchase_state,
+                "consumption_state": int(data.get("consumptionState", 0) or 0),
+                "raw": data,
+                "validation_source": "google_play_api",
+                "error": None if purchase_state == 0 else f"Google Play purchaseState={purchase_state}",
+            }
+        except requests.RequestException as exc:
+            if getattr(settings, "GOOGLE_PLAY_STRICT_VALIDATION", False):
+                return {"success": False, "error": str(exc)}
+            logger.warning("Google Play validation failed, using fallback validation: %s", exc)
+            return {
+                "success": True,
+                "purchase_token": purchase_token,
+                "acknowledged": True,
+                "validation_source": "fallback",
+            }
 
     def process_google_purchase(
         self,
@@ -722,13 +1031,12 @@ class InAppPurchaseService:
         order_id: str = None
     ) -> dict:
         """Process Google Play in-app purchase."""
-        from apps.payments.models import InAppProduct, InAppPurchase
-        from django.utils import timezone
+        from apps.payments.models import InAppPurchase
 
         # Validate purchase
         validation = self.validate_google_purchase(product_id, purchase_token)
         if not validation.get("success"):
-            return {"success": False, "error": "Invalid purchase"}
+            return {"success": False, "error": validation.get("error") or "Invalid purchase"}
 
         # Get product
         product = self.get_product_by_platform_id("google", product_id)
@@ -745,17 +1053,9 @@ class InAppPurchaseService:
         if existing:
             return {"success": True, "purchase": existing, "already_processed": True}
 
-        # Calculate subscription period
         period_start = timezone.now()
-        period_end = None
-
-        if product.product_type == "subscription":
-            if product.subscription_type == "monthly":
-                from datetime import timedelta
-                period_end = period_start + timedelta(days=30)
-            elif product.subscription_type == "yearly":
-                from datetime import timedelta
-                period_end = period_start + timedelta(days=365)
+        period_end = self._calculate_period_end(product, validation)
+        resolved_order_id = str(validation.get("order_id") or order_id or "").strip()
 
         # Create purchase record
         purchase = InAppPurchase.objects.create(
@@ -769,10 +1069,14 @@ class InAppPurchaseService:
             period_start=period_start,
             period_end=period_end,
             expires_date=period_end,
+            auto_renew_enabled=bool(validation.get("auto_renew_enabled", product.product_type == "subscription")),
             amount=product.price,
             currency=product.currency,
             metadata={
-                "order_id": order_id,
+                "order_id": resolved_order_id,
+                "validation_source": validation.get("validation_source"),
+                "acknowledged": validation.get("acknowledged"),
+                "linked_purchase_token": validation.get("linked_purchase_token"),
             }
         )
 
@@ -794,7 +1098,6 @@ class InAppPurchaseService:
     ) -> dict:
         """Handle Google Play subscription renewal."""
         from apps.payments.models import InAppPurchase
-        from django.utils import timezone
 
         purchase = InAppPurchase.objects.filter(
             user=user,
@@ -806,12 +1109,12 @@ class InAppPurchaseService:
             return {"success": False, "error": "Purchase not found"}
 
         # Update expiry
-        purchase.expires_date = timezone.datetime.fromtimestamp(
-            expiry_time_millis / 1000,
-            tz=timezone.utc
-        )
+        expires_at = _parse_millis_timestamp(expiry_time_millis)
+        purchase.period_end = expires_at
+        purchase.expires_date = expires_at
         purchase.auto_renew_enabled = True
-        purchase.save()
+        purchase.status = "active"
+        purchase.save(update_fields=["period_end", "expires_date", "auto_renew_enabled", "status", "updated_at"])
 
         return {"success": True, "purchase": purchase}
 
@@ -833,7 +1136,7 @@ class InAppPurchaseService:
             return {"success": False, "error": "Purchase not found"}
 
         purchase.auto_renew_enabled = False
-        purchase.save()
+        purchase.save(update_fields=["auto_renew_enabled", "updated_at"])
 
         return {"success": True, "purchase": purchase}
 
@@ -1018,6 +1321,10 @@ class InAppPurchaseService:
         """Sync in-app purchase to local subscription."""
         from apps.payments.models import Subscription, Plan
 
+        plan = Plan.objects.filter(tier=product.tier, is_active=True).first()
+        if not plan:
+            return
+
         # Get or create subscription
         subscription = Subscription.objects.filter(
             user=user,
@@ -1026,29 +1333,25 @@ class InAppPurchaseService:
 
         if subscription:
             # Update existing subscription
-            plan = Plan.objects.filter(tier=product.tier, is_active=True).first()
-            if plan:
-                subscription.plan = plan
-                subscription.status = "active"
-                subscription.current_period_start = purchase.period_start
-                subscription.current_period_end = purchase.expires_date
-                subscription.save()
+            subscription.plan = plan
+            subscription.status = "active"
+            subscription.current_period_start = purchase.period_start
+            subscription.current_period_end = purchase.expires_date
+            subscription.save()
         else:
             # Create new subscription
-            plan = Plan.objects.filter(tier=product.tier, is_active=True).first()
-            if plan:
-                Subscription.objects.create(
-                    user=user,
-                    plan=plan,
-                    status="active",
-                    billing_period=purchase.subscription_type or "monthly",
-                    current_period_start=purchase.period_start,
-                    current_period_end=purchase.expires_date,
-                )
+            subscription = Subscription.objects.create(
+                user=user,
+                plan=plan,
+                status="active",
+                billing_period=purchase.subscription_type or "monthly",
+                current_period_start=purchase.period_start,
+                current_period_end=purchase.expires_date,
+            )
 
         # Link purchase to subscription
         purchase.subscription = subscription
-        purchase.save()
+        purchase.save(update_fields=["subscription", "updated_at"])
 
     def get_user_subscription(self, user) -> dict:
         """Get user's current subscription status."""

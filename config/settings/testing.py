@@ -38,6 +38,14 @@ PASSWORD_HASHERS = [
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 MEDIA_ROOT = "/tmp/campushub_test_media"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
@@ -77,3 +85,6 @@ LOGGING = {
 # Keep token checks deterministic for auth tests that validate short-lived
 # admin impersonation access tokens.
 SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(minutes=30)  # noqa: F405
+
+# Disable PayPal webhook verification in tests to avoid signature headers.
+PAYPAL_WEBHOOK_ID = ""

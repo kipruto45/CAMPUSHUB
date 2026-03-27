@@ -28,6 +28,23 @@ def _provider_status_payload() -> dict:
     return payment_service.get_provider_statuses()
 
 
+def _sync_pending_paypal_payments(queryset, limit: int = 5) -> None:
+    for payment in queryset.order_by("-created_at")[:limit]:
+        provider_payment_id = (
+            payment.metadata.get("provider_payment_id") or payment.stripe_payment_intent_id
+        )
+        if not provider_payment_id:
+            continue
+        try:
+            payment_service.verify_payment("paypal", provider_payment_id)
+        except Exception as exc:  # pragma: no cover - defensive sync path
+            logger.warning(
+                "PayPal payment sync failed for local payment %s: %s",
+                payment.id,
+                exc,
+            )
+
+
 class PlanListView(APIView):
     """List available subscription plans."""
 
@@ -38,28 +55,80 @@ class PlanListView(APIView):
         description="Get all available subscription plans"
     )
     def get(self, request, *args, **kwargs):
+        from apps.payments.freemium import (
+            TIER_INFO,
+            TRIAL_FEATURE_EXCLUSIONS,
+            TRIAL_LIMIT_OVERRIDES,
+            get_plan_profile,
+            get_tier_from_string,
+        )
+
         plans = Plan.objects.filter(is_active=True).order_by("display_order")
-        
-        data = [{
-            "id": str(plan.id),
-            "name": plan.name,
-            "tier": plan.tier,
-            "description": plan.description,
-            "price_monthly": str(plan.price_monthly),
-            "price_yearly": str(plan.price_yearly),
-            "billing_period": plan.billing_period,
-            "storage_limit_gb": plan.storage_limit_gb,
-            "max_upload_size_mb": plan.max_upload_size_mb,
-            "download_limit_monthly": plan.download_limit_monthly,
-            "can_download_unlimited": plan.can_download_unlimited,
-            "has_ads": plan.has_ads,
-            "has_priority_support": plan.has_priority_support,
-            "has_analytics": plan.has_analytics,
-            "has_early_access": plan.has_early_access,
-            "is_featured": plan.is_featured,
-            "stripe_monthly_price_id": plan.stripe_monthly_price_id,
-            "stripe_yearly_price_id": plan.stripe_yearly_price_id,
-        } for plan in plans]
+
+        data = []
+        for plan in plans:
+            tier = get_tier_from_string(plan.tier)
+            profile = get_plan_profile(tier)
+            metadata = dict(plan.metadata or {})
+            trial_limits = TRIAL_LIMIT_OVERRIDES.get(tier)
+
+            data.append({
+                "id": str(plan.id),
+                "name": plan.name,
+                "tier": plan.tier,
+                "description": plan.description,
+                "plan_type": metadata.get("plan_type") or profile["plan_type"],
+                "ideal_for": metadata.get("ideal_for") or profile["ideal_for"],
+                "highlights": metadata.get("highlights") or profile["highlights"],
+                "price_monthly": str(plan.price_monthly),
+                "price_yearly": str(plan.price_yearly),
+                "billing_period": plan.billing_period,
+                "storage_limit_gb": plan.storage_limit_gb,
+                "max_upload_size_mb": plan.max_upload_size_mb,
+                "download_limit_monthly": plan.download_limit_monthly,
+                "upload_limit_monthly": plan.upload_limit_monthly,
+                "message_limit_daily": plan.message_limit_daily,
+                "group_limit": plan.group_limit,
+                "bookmark_limit": plan.bookmark_limit,
+                "event_limit_monthly": plan.event_limit_monthly,
+                "points_limit_monthly": plan.points_limit_monthly,
+                "badge_limit": plan.badge_limit,
+                "search_results_limit": plan.search_results_limit,
+                "notification_delay_hours": plan.notification_delay_hours,
+                "support_response_hours": plan.support_response_hours,
+                "limits": {
+                    "storage_gb": plan.storage_limit_gb,
+                    "max_upload_mb": plan.max_upload_size_mb,
+                    "downloads_monthly": plan.download_limit_monthly,
+                    "upload_limit_monthly": plan.upload_limit_monthly,
+                    "message_limit_daily": plan.message_limit_daily,
+                    "group_limit": plan.group_limit,
+                    "bookmark_limit": plan.bookmark_limit,
+                    "event_limit_monthly": plan.event_limit_monthly,
+                    "points_limit_monthly": plan.points_limit_monthly,
+                    "badge_limit": plan.badge_limit,
+                    "search_results_limit": plan.search_results_limit,
+                    "notification_delay_hours": plan.notification_delay_hours,
+                    "support_response_hours": plan.support_response_hours,
+                },
+                "trial_preview": {
+                    "available": trial_limits is not None,
+                    "is_trial_limited": trial_limits is not None,
+                    "locked_features": sorted(
+                        feature.value for feature in TRIAL_FEATURE_EXCLUSIONS.get(tier, set())
+                    ),
+                    "limits": trial_limits or {},
+                },
+                "feature_count": len(TIER_INFO[tier].features),
+                "can_download_unlimited": plan.can_download_unlimited,
+                "has_ads": plan.has_ads,
+                "has_priority_support": plan.has_priority_support,
+                "has_analytics": plan.has_analytics,
+                "has_early_access": plan.has_early_access,
+                "is_featured": plan.is_featured,
+                "stripe_monthly_price_id": plan.stripe_monthly_price_id,
+                "stripe_yearly_price_id": plan.stripe_yearly_price_id,
+            })
 
         return Response({
             "plans": data,
@@ -80,6 +149,15 @@ class SubscriptionView(APIView):
         from apps.payments.freemium import (
             get_active_subscription,
             get_feature_access_summary,
+        )
+
+        _sync_pending_paypal_payments(
+            Payment.objects.filter(
+                user=request.user,
+                subscription__isnull=False,
+                status="pending",
+                metadata__provider="paypal",
+            )
         )
 
         subscription = get_active_subscription(request.user, include_pending=True)
@@ -391,6 +469,14 @@ class PaymentHistoryView(APIView):
         description="Get user's payment history"
     )
     def get(self, request, *args, **kwargs):
+        _sync_pending_paypal_payments(
+            Payment.objects.filter(
+                user=request.user,
+                status="pending",
+                metadata__provider="paypal",
+            )
+        )
+
         payments = Payment.objects.filter(
             user=request.user
         ).order_by("-created_at")[:50]
@@ -482,8 +568,22 @@ class PaymentStatusView(APIView):
             return Response({"error": "payment_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Try local record first
-        payment = Payment.objects.filter(id=payment_id).first()
+        payment = Payment.objects.filter(id=payment_id, user=request.user).first()
         if payment:
+            if payment.status == "pending" and payment.metadata.get("provider") == "paypal":
+                provider_payment_id = (
+                    payment.metadata.get("provider_payment_id") or payment.stripe_payment_intent_id
+                )
+                if provider_payment_id:
+                    try:
+                        payment_service.verify_payment("paypal", provider_payment_id)
+                        payment.refresh_from_db()
+                    except Exception as exc:  # pragma: no cover - defensive sync path
+                        logger.warning(
+                            "PayPal payment status sync failed for local payment %s: %s",
+                            payment.id,
+                            exc,
+                        )
             return Response({
                 "status": payment.status,
                 "amount": str(payment.amount),
@@ -511,6 +611,15 @@ class StorageUpgradeView(APIView):
         description="Get user's storage upgrades"
     )
     def get(self, request, *args, **kwargs):
+        _sync_pending_paypal_payments(
+            Payment.objects.filter(
+                user=request.user,
+                status="pending",
+                metadata__provider="paypal",
+                metadata__type="storage_upgrade",
+            )
+        )
+
         upgrades = StorageUpgrade.objects.filter(
             user=request.user
         ).order_by("-created_at")
@@ -1079,10 +1188,26 @@ class UserTierView(APIView):
         return Response({
             "tier": user_tier.value,
             "tier_name": tier_info.name if tier_info else "Free",
+            "plan_type": access_summary.get("plan_type"),
+            "ideal_for": access_summary.get("ideal_for"),
+            "highlights": access_summary.get("highlights", []),
             "features": access_summary,
             "limits": {
                 "storage_limit_gb": access_summary.get("storage_limit_gb"),
+                "max_upload_size_mb": access_summary.get("max_upload_size_mb"),
                 "download_limit_monthly": access_summary.get("download_limit_monthly"),
+                "upload_limit_monthly": access_summary.get("upload_limit_monthly"),
+                "message_limit_daily": access_summary.get("message_limit_daily"),
+                "group_limit": access_summary.get("group_limit"),
+                "bookmark_limit": access_summary.get("bookmark_limit"),
+                "event_limit_monthly": access_summary.get("event_limit_monthly"),
+                "points_limit_monthly": access_summary.get("points_limit_monthly"),
+                "badge_limit": access_summary.get("badge_limit"),
+                "search_results_limit": access_summary.get("search_results_limit"),
+                "notification_delay_hours": access_summary.get("notification_delay_hours"),
+                "support_response_hours": access_summary.get("support_response_hours"),
+                "can_download_unlimited": access_summary.get("can_download_unlimited"),
+                "is_trial_limited": access_summary.get("is_trial_limited"),
             },
         })
 

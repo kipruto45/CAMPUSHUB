@@ -62,6 +62,7 @@ from apps.core.idempotency import (
     get_cached_idempotent_response,
 )
 from apps.core.emails import EmailService, UserEmailService
+from apps.courses.catalog_exports import ensure_catalog_seeded_from_exports
 from apps.courses.models import Course, Unit
 from apps.downloads.services import DownloadService
 from apps.core.storage.utils import build_storage_download_path
@@ -287,6 +288,7 @@ def public_faculties(request):
     """
     Get all faculties for public access (registration).
     """
+    ensure_catalog_seeded_from_exports()
     faculties = Faculty.objects.filter(is_active=True).order_by("name")
     data = {
         "faculties": [
@@ -304,6 +306,7 @@ def public_departments(request):
     Get departments by faculty for public access (registration).
     Query params: faculty_id
     """
+    ensure_catalog_seeded_from_exports()
     faculty_id = request.query_params.get("faculty_id")
     if not faculty_id:
         return MobileResponse.error(message="faculty_id is required")
@@ -333,6 +336,7 @@ def public_courses(request):
     Get courses by department or faculty for public access (registration).
     Query params: department_id OR faculty_id, semester, year_of_study
     """
+    ensure_catalog_seeded_from_exports()
     department_id = request.query_params.get("department_id")
     faculty_id = request.query_params.get("faculty_id")
     
@@ -1502,6 +1506,7 @@ def mobile_register_device(request):
 @throttle_classes([MobileUserRateThrottle])
 def mobile_courses(request):
     """Get all courses for mobile."""
+    ensure_catalog_seeded_from_exports()
     courses = Course.objects.filter(is_active=True).only("id", "name", "code")
 
     data = {"courses": [{"id": c.id, "name": c.name, "code": c.code} for c in courses]}
@@ -1514,6 +1519,7 @@ def mobile_courses(request):
 @throttle_classes([MobileUserRateThrottle])
 def mobile_units(request, course_id):
     """Get units for a specific course."""
+    ensure_catalog_seeded_from_exports()
     try:
         semester, year_of_study = _parse_academic_filter_params(request)
     except DRFValidationError as exc:
@@ -1550,6 +1556,7 @@ def mobile_units(request, course_id):
 @throttle_classes([MobileUserRateThrottle])
 def mobile_faculties(request):
     """Get all faculties for mobile."""
+    ensure_catalog_seeded_from_exports()
     faculties = Faculty.objects.filter(is_active=True).only("id", "name")
 
     data = {"faculties": [{"id": f.id, "name": f.name} for f in faculties]}

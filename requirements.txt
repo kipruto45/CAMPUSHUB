@@ -45,6 +45,7 @@ drf-spectacular>=0.27,<1.0
 
 # AI / Scientific
 numpy>=2.0,<3.0
+openai>=1.0,<2.0
 
 # Utilities
 python-slugify>=8.0,<9.0

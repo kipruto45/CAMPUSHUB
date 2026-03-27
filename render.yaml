@@ -10,12 +10,16 @@ services:
       if [ "$RESET_REFERENCE_DATA" = "true" ]; then python manage.py clear_all_data; fi && \
       python manage.py seed_all_data && \
       python manage.py collectstatic --noinput
-    startCommand: gunicorn config.wsgi:application
+    startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application
     envVars:
       - key: ENVIRONMENT
         value: production
       - key: DEBUG
         value: "False"
+      - key: ALLOWED_HOSTS
+        value: campushub-api.onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://campushub-api.onrender.com
       - key: DATABASE_URL
         value: sqlite:////tmp/campushub.sqlite3
       - key: FORCE_SQLITE
@@ -24,17 +28,153 @@ services:
         value: /tmp/campushub.sqlite3
       - key: AUTO_MIGRATE_ON_STARTUP
         value: "False"
+      - key: CHANNEL_LAYER_BACKEND
+        value: inmemory
       - key: SECRET_KEY
         sync: false
       - key: JWT_SECRET_KEY
         sync: false
+      - key: ANDROID_SHA256_CERT_FINGERPRINTS
+        sync: false
       - key: RESET_REFERENCE_DATA
         value: "false"
       - key: FRONTEND_BASE_URL
-        value: https://my-cham-a.app
+        value: https://campushub-api.onrender.com
       - key: FRONTEND_URL
-        value: https://my-cham-a.app
+        value: https://campushub-api.onrender.com
       - key: RESOURCE_SHARE_BASE_URL
-        value: https://my-cham-a.app
+        value: https://campushub-api.onrender.com
+      - key: MOBILE_DEEPLINK_HOST
+        value: campushub-api.onrender.com
       - key: BASE_URL
         value: https://campushub-api.onrender.com
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AI_CHAT_MODEL
+        value: gpt-4o-mini
+      - key: AI_CHAT_TEMPERATURE
+        value: "0.4"
+      - key: AI_CHAT_MAX_TOKENS
+        value: "500"
+      - key: AI_CHAT_TIMEOUT_SECONDS
+        value: "25"
+      - key: SUMMARIZATION_MODEL
+        value: gpt-4o-mini
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_BASIC_MONTHLY_PRICE_ID
+        sync: false
+      - key: STRIPE_BASIC_YEARLY_PRICE_ID
+        sync: false
+      - key: STRIPE_BASIC_PRODUCT_ID
+        sync: false
+      - key: STRIPE_PREMIUM_MONTHLY_PRICE_ID
+        sync: false
+      - key: STRIPE_PREMIUM_YEARLY_PRICE_ID
+        sync: false
+      - key: STRIPE_PREMIUM_PRODUCT_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_MONTHLY_PRICE_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_YEARLY_PRICE_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_PRODUCT_ID
+        sync: false
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_TIMEOUT_SECONDS
+        value: "30"
+      - key: APPLE_IAP_SHARED_SECRET
+        sync: false
+      - key: APPLE_IAP_USE_SANDBOX
+        value: "False"
+      - key: APPLE_IAP_TIMEOUT_SECONDS
+        value: "30"
+      - key: GOOGLE_PLAY_PACKAGE_NAME
+        sync: false
+      - key: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64
+        sync: false
+      - key: GOOGLE_PLAY_SERVICE_ACCOUNT_PATH
+        sync: false
+      - key: GOOGLE_PLAY_TIMEOUT_SECONDS
+        value: "30"
+      - key: GOOGLE_PLAY_STRICT_VALIDATION
+        value: "False"
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_ENABLED
+        value: "False"
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+
+  - type: worker
+    name: campushub-worker
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: celery -A config.celery worker -l info
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: BASE_URL
+        sync: false
+
+  - type: worker
+    name: campushub-beat
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: celery -A config.celery beat -l info
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: BASE_URL
+        sync: false

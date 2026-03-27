@@ -470,7 +470,33 @@ STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
 PAYPAL_MODE = str(config("PAYPAL_MODE", default="sandbox")).strip().lower() or "sandbox"
 PAYPAL_CLIENT_ID = config("PAYPAL_CLIENT_ID", default="")
 PAYPAL_CLIENT_SECRET = config("PAYPAL_CLIENT_SECRET", default="")
+PAYPAL_WEBHOOK_ID = config("PAYPAL_WEBHOOK_ID", default="")
 PAYPAL_TIMEOUT_SECONDS = config("PAYPAL_TIMEOUT_SECONDS", default=30, cast=int)
+
+# Mobile store billing
+APPLE_IAP_SHARED_SECRET = str(config("APPLE_IAP_SHARED_SECRET", default="")).strip()
+APPLE_IAP_USE_SANDBOX = config(
+    "APPLE_IAP_USE_SANDBOX",
+    default="false",
+    cast=lambda x: str(x).lower() in ("true", "1", "yes"),
+)
+APPLE_IAP_TIMEOUT_SECONDS = config("APPLE_IAP_TIMEOUT_SECONDS", default=30, cast=int)
+GOOGLE_PLAY_PACKAGE_NAME = str(config("GOOGLE_PLAY_PACKAGE_NAME", default="")).strip()
+GOOGLE_PLAY_SERVICE_ACCOUNT_JSON = str(
+    config("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON", default="")
+).strip()
+GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64 = str(
+    config("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64", default="")
+).strip()
+GOOGLE_PLAY_SERVICE_ACCOUNT_PATH = str(
+    config("GOOGLE_PLAY_SERVICE_ACCOUNT_PATH", default="")
+).strip()
+GOOGLE_PLAY_TIMEOUT_SECONDS = config("GOOGLE_PLAY_TIMEOUT_SECONDS", default=30, cast=int)
+GOOGLE_PLAY_STRICT_VALIDATION = config(
+    "GOOGLE_PLAY_STRICT_VALIDATION",
+    default="false",
+    cast=lambda x: str(x).lower() in ("true", "1", "yes"),
+)
 
 # Mobile money / M-Pesa
 MOBILE_MONEY_PROVIDER = (
@@ -547,9 +573,11 @@ ALLOWED_FILE_EXTENSIONS = config(
 CLOUDINARY_CLOUD_NAME = config("CLOUDINARY_CLOUD_NAME", default="")
 CLOUDINARY_API_KEY = config("CLOUDINARY_API_KEY", default="")
 CLOUDINARY_API_SECRET = config("CLOUDINARY_API_SECRET", default="")
-
-# Force local storage for now (Cloudinary disabled)
-CLOUDINARY_ENABLED = False
+CLOUDINARY_ENABLED = config(
+    "CLOUDINARY_ENABLED",
+    default="false",
+    cast=lambda x: str(x).lower() in ("true", "1", "yes"),
+)
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -689,8 +717,17 @@ if ENCRYPTION_MASTER_KEY and len(ENCRYPTION_MASTER_KEY) < 64:
 _cloudinary_credentials_present = bool(
     CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET
 )
-# Force disable Cloudinary - use local file storage
-CLOUDINARY_ENABLED = False
+CLOUDINARY_ENABLED = bool(CLOUDINARY_ENABLED and _cloudinary_credentials_present)
+
+if CLOUDINARY_ENABLED:
+    CLOUDINARY_STORAGE = {
+        "CLOUD_NAME": CLOUDINARY_CLOUD_NAME,
+        "API_KEY": CLOUDINARY_API_KEY,
+        "API_SECRET": CLOUDINARY_API_SECRET,
+    }
+    STORAGES["default"] = {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    }
 
 # Email Configuration
 EMAIL_BACKEND = config(

@@ -2,6 +2,8 @@
 Payment webhook views for all providers.
 """
 
+import base64
+import json
 import logging
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -9,8 +11,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .providers import (handle_stripe_webhook, handle_paypal_webhook,
-                         handle_mobile_money_webhook)
+from .providers import (
+    handle_mobile_money_webhook,
+    handle_paypal_webhook,
+    handle_stripe_webhook,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +56,11 @@ class PayPalWebhookView(APIView):
         description="Receive PayPal payment events"
     )
     def post(self, request, *args, **kwargs):
-        payload = request.data
+        if hasattr(request.data, "copy"):
+            payload = request.data.copy()
+        else:
+            payload = dict(request.data)
+        payload["_paypal_headers"] = {key.lower(): value for key, value in request.headers.items()}
         signature = request.headers.get("paypal-transmission-sig", "")
         
         result = handle_paypal_webhook(payload, signature)
@@ -90,34 +99,42 @@ class MobileMoneyWebhookView(APIView):
         )
 
 
-class AppleWebhookView(APIView):
-    """Handle Apple App Store server notifications."""
-
-    permission_classes = [AllowAny]
-    authentication_classes = []
-
-    @extend_schema(
-        summary="Apple In-App Purchase Webhook",
-        description="Receive Apple App Store server-to-server notifications",
-    )
-    def post(self, request, *args, **kwargs):
-        logger.info("Received Apple in-app purchase webhook: %s", request.data)
-        return Response({"received": True})
+def _b64url_decode(value: str) -> bytes:
+    padding_needed = (-len(value)) % 4
+    return base64.urlsafe_b64decode(f"{value}{'=' * padding_needed}")
 
 
-class GoogleWebhookView(APIView):
-    """Handle Google Play billing notifications."""
+def _decode_apple_signed_payload(payload: dict) -> dict:
+    signed_payload = payload.get("signedPayload")
+    if not signed_payload:
+        return payload
 
-    permission_classes = [AllowAny]
-    authentication_classes = []
+    try:
+        header_b64, body_b64, _sig = signed_payload.split(".")
+        decoded = json.loads(_b64url_decode(body_b64))
+        return decoded if isinstance(decoded, dict) else payload
+    except Exception:
+        logger.exception("Failed to decode Apple signedPayload")
+        return payload
 
-    @extend_schema(
-        summary="Google Play Billing Webhook",
-        description="Receive Google Play billing notifications",
-    )
-    def post(self, request, *args, **kwargs):
-        logger.info("Received Google Play billing webhook: %s", request.data)
-        return Response({"received": True})
+
+def _decode_google_rtdn_payload(payload: dict) -> dict:
+    if not payload:
+        return {}
+
+    if "message" in payload and isinstance(payload.get("message"), dict):
+        message = payload.get("message") or {}
+        data = message.get("data")
+        if isinstance(data, str):
+            try:
+                decoded = base64.b64decode(data).decode("utf-8")
+                parsed = json.loads(decoded)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                logger.exception("Failed to decode Google RTDN message.data")
+
+    return payload
 
 
 class PaymentWebhookSelectView(APIView):
@@ -157,7 +174,12 @@ class PaymentWebhookSelectView(APIView):
         return Response({"received": True}) if result.get("success") else Response({"error": "Failed"}, status=400)
 
     def _handle_paypal(self, request):
-        result = handle_paypal_webhook(request.data, "")
+        if hasattr(request.data, "copy"):
+            payload = request.data.copy()
+        else:
+            payload = dict(request.data)
+        payload["_paypal_headers"] = {key.lower(): value for key, value in request.headers.items()}
+        result = handle_paypal_webhook(payload, "")
         return Response({"received": True}) if result.get("success") else Response({"error": "Failed"}, status=400)
 
     def _handle_mobile_money(self, request):
@@ -180,14 +202,15 @@ class AppleWebhookView(APIView):
     def post(self, request, *args, **kwargs):
         from apps.payments.services import get_in_app_purchase_service
         from apps.payments.models import InAppPurchase
-        from django.contrib.auth import get_user_model
 
-        payload = request.data
-        notification_type = payload.get("notificationType")
-        transaction_id = payload.get("transactionId")
-        original_transaction_id = payload.get("originalTransactionId")
-        expires_date = payload.get("expiresDate")
-        product_id = payload.get("productId")
+        raw_payload = request.data or {}
+        payload = _decode_apple_signed_payload(raw_payload)
+
+        notification_type = payload.get("notificationType") or payload.get("notification_type")
+        transaction_id = payload.get("transactionId") or payload.get("transaction_id")
+        original_transaction_id = payload.get("originalTransactionId") or payload.get("original_transaction_id")
+        expires_date = payload.get("expiresDate") or payload.get("expires_date")
+        product_id = payload.get("productId") or payload.get("product_id")
 
         logger.info(f"Apple webhook received: {notification_type} for transaction {transaction_id}")
 
@@ -293,12 +316,36 @@ class GoogleWebhookView(APIView):
         from apps.payments.services import get_in_app_purchase_service
         from apps.payments.models import InAppPurchase
 
-        payload = request.data
-        version = payload.get("version")
+        raw_payload = request.data or {}
+        payload = _decode_google_rtdn_payload(raw_payload)
+
         notification_type = payload.get("notificationType")
         purchase_token = payload.get("purchaseToken")
         subscription_id = payload.get("subscriptionId")
 
+        if "subscriptionNotification" in payload:
+            subscription_notification = payload.get("subscriptionNotification") or {}
+            notification_type = subscription_notification.get("notificationType") or notification_type
+            purchase_token = subscription_notification.get("purchaseToken") or purchase_token
+            subscription_id = subscription_notification.get("subscriptionId") or subscription_id
+
+        notification_type_map = {
+            1: "SUBSCRIPTION_RECOVERED",
+            2: "SUBSCRIPTION_RENEWED",
+            3: "SUBSCRIPTION_CANCELED",
+            4: "SUBSCRIPTION_PURCHASED",
+            5: "SUBSCRIPTION_ON_HOLD",
+            6: "SUBSCRIPTION_IN_GRACE_PERIOD",
+            7: "SUBSCRIPTION_RESTARTED",
+            8: "SUBSCRIPTION_PRICE_CHANGE_CONFIRMED",
+            9: "SUBSCRIPTION_DEFERRED",
+            10: "SUBSCRIPTION_PAUSED",
+            11: "SUBSCRIPTION_PAUSE_SCHEDULE_CHANGED",
+            12: "SUBSCRIPTION_REVOKED",
+            13: "SUBSCRIPTION_EXPIRED",
+        }
+        if isinstance(notification_type, int):
+            notification_type = notification_type_map.get(notification_type, str(notification_type))
         logger.info(f"Google webhook received: {notification_type} for token {purchase_token}")
 
         service = get_in_app_purchase_service()

@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -169,6 +169,25 @@ class PayPalPaymentProvider(PaymentProvider):
             return False, "PayPal is not configured. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET."
         return True, ""
 
+    def _extract_order_summary(self, payload: dict) -> Dict[str, Any]:
+        purchase_units = payload.get("purchase_units") or [{}]
+        purchase_unit = purchase_units[0] if purchase_units else {}
+        payments = purchase_unit.get("payments") or {}
+        captures = payments.get("captures") or []
+        capture = captures[0] if captures else {}
+        related_ids = ((capture.get("supplementary_data") or {}).get("related_ids") or {})
+        amount_data = capture.get("amount") or purchase_unit.get("amount") or {}
+
+        return {
+            "order_id": payload.get("id") or related_ids.get("order_id"),
+            "reference_id": purchase_unit.get("reference_id"),
+            "custom_id": purchase_unit.get("custom_id"),
+            "capture_id": capture.get("id") or related_ids.get("capture_id"),
+            "status": str(payload.get("status", "")).upper(),
+            "amount": Decimal(str(amount_data.get("value", "0"))),
+            "currency": str(amount_data.get("currency_code", "USD")).upper(),
+        }
+
     def _get_access_token(self) -> Optional[str]:
         """Get PayPal access token."""
         configured, error = self.is_configured()
@@ -195,6 +214,51 @@ class PayPalPaymentProvider(PaymentProvider):
             logger.error(f"PayPal token request failed: {e}")
             return None
 
+    def _capture_order(self, payment_id: str, token: str) -> Dict[str, Any]:
+        """Capture an approved PayPal order."""
+        try:
+            import requests
+
+            response = requests.post(
+                f"{self.base_url}/v2/checkout/orders/{payment_id}/capture",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={},
+                timeout=self.request_timeout,
+            )
+
+            try:
+                data = response.json()
+            except Exception:
+                data = {"error": response.text}
+
+            if response.status_code in {200, 201}:
+                return {"success": True, "data": data}
+
+            follow_up = requests.get(
+                f"{self.base_url}/v2/checkout/orders/{payment_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=self.request_timeout,
+            )
+            if follow_up.ok:
+                follow_up_data = follow_up.json() or {}
+                if str(follow_up_data.get("status", "")).upper() == "COMPLETED":
+                    return {"success": True, "data": follow_up_data}
+
+            return {
+                "success": False,
+                "error": (
+                    data.get("message")
+                    or data.get("name")
+                    or "Failed to capture PayPal payment"
+                ),
+            }
+        except Exception as exc:
+            logger.error(f"PayPal order capture failed: {exc}")
+            return {"success": False, "error": str(exc)}
+
     def create_payment(self, amount: Decimal, currency: str, metadata: dict) -> Dict[str, Any]:
         """Create PayPal order."""
         token = self._get_access_token()
@@ -204,12 +268,17 @@ class PayPalPaymentProvider(PaymentProvider):
         try:
             import requests
 
+            local_reference = str(
+                metadata.get("payment_id") or metadata.get("order_id") or uuid.uuid4()
+            )
+
             response = requests.post(
                 f"{self.base_url}/v2/checkout/orders",
                 json={
                     "intent": "CAPTURE",
                     "purchase_units": [{
-                        "reference_id": metadata.get("order_id", str(uuid.uuid4())),
+                        "reference_id": local_reference[:256],
+                        "custom_id": local_reference[:127],
                         "description": metadata.get("description", "CampusHub Payment"),
                         "amount": {
                             "currency_code": str(currency).upper(),
@@ -219,6 +288,8 @@ class PayPalPaymentProvider(PaymentProvider):
                     "application_context": {
                         "return_url": metadata.get("success_url", "/settings/billing/success/"),
                         "cancel_url": metadata.get("cancel_url", "/settings/billing/cancel/"),
+                        "shipping_preference": "NO_SHIPPING",
+                        "user_action": "PAY_NOW",
                     },
                 },
                 headers={
@@ -240,6 +311,7 @@ class PayPalPaymentProvider(PaymentProvider):
                     "provider": "paypal",
                     "payment_id": data["id"],
                     "checkout_url": approval_url,
+                    "reference_id": local_reference,
                 }
             return {
                 "success": False,
@@ -270,27 +342,44 @@ class PayPalPaymentProvider(PaymentProvider):
                     "error": data.get("message") or data.get("name") or "Failed to verify PayPal payment",
                 }
 
-            status = data.get("status", "").upper()
-            purchase = (data.get("purchase_units") or [{}])[0]
-            captures = ((purchase.get("payments") or {}).get("captures") or [])
-            capture_amount = (captures[0].get("amount") if captures else None) or {}
-            base_amount = purchase.get("amount", {}) or {}
-            amount_data = capture_amount or base_amount
+            summary = self._extract_order_summary(data)
+            status = summary["status"]
+            if status == "APPROVED":
+                capture_result = self._capture_order(payment_id, token)
+                if not capture_result.get("success"):
+                    return capture_result
+                data = capture_result.get("data") or {}
+                summary = self._extract_order_summary(data)
+                status = summary["status"]
 
             return {
                 "success": True,
-                "status": "COMPLETED" if status == "COMPLETED" else "PENDING",
-                "amount": Decimal(str(amount_data.get("value", "0"))),
-                "currency": str(amount_data.get("currency_code", "USD")).upper(),
+                "status": (
+                    "COMPLETED"
+                    if status == "COMPLETED"
+                    else "FAILED"
+                    if status in {"VOIDED", "DENIED", "FAILED"}
+                    else "PENDING"
+                ),
+                "raw_status": status,
+                "amount": summary["amount"],
+                "currency": summary["currency"],
+                "order_id": summary["order_id"] or payment_id,
+                "capture_id": summary.get("capture_id"),
+                "reference_id": summary.get("reference_id"),
+                "custom_id": summary.get("custom_id"),
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def process_webhook(self, payload: dict, signature: str) -> Dict[str, Any]:
         """Process PayPal webhook."""
-        # PayPal webhook verification would go here
+        verification = self._verify_webhook(payload)
+        if not verification.get("success"):
+            return verification
         return {
             "success": True,
+            "verification": verification,
             "event_type": payload.get("event_type"),
             "data": payload.get("resource"),
         }
@@ -335,6 +424,75 @@ class PayPalPaymentProvider(PaymentProvider):
             return {"success": False, "error": "Refund failed"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _verify_webhook(self, payload: dict) -> Dict[str, Any]:
+        """Verify PayPal webhook signature when configured."""
+        webhook_id = str(getattr(settings, "PAYPAL_WEBHOOK_ID", "")).strip()
+        if not webhook_id:
+            return {"success": True, "skipped": True, "reason": "PAYPAL_WEBHOOK_ID not set"}
+
+        if not isinstance(payload, dict):
+            return {"success": False, "error": "Invalid PayPal webhook payload"}
+
+        headers = payload.get("_paypal_headers", {}) or {}
+        payload_for_verify = {key: value for key, value in payload.items() if key != "_paypal_headers"}
+        transmission_id = headers.get("paypal-transmission-id") or headers.get("paypal-transmission-id".upper())
+        transmission_time = headers.get("paypal-transmission-time") or headers.get("paypal-transmission-time".upper())
+        transmission_sig = headers.get("paypal-transmission-sig") or headers.get("paypal-transmission-sig".upper())
+        cert_url = headers.get("paypal-cert-url") or headers.get("paypal-cert-url".upper())
+        auth_algo = headers.get("paypal-auth-algo") or headers.get("paypal-auth-algo".upper())
+
+        missing = [
+            name
+            for name, value in [
+                ("paypal-transmission-id", transmission_id),
+                ("paypal-transmission-time", transmission_time),
+                ("paypal-transmission-sig", transmission_sig),
+                ("paypal-cert-url", cert_url),
+                ("paypal-auth-algo", auth_algo),
+            ]
+            if not value
+        ]
+        if missing:
+            return {
+                "success": False,
+                "error": f"Missing PayPal webhook signature headers: {', '.join(missing)}",
+            }
+
+        token = self._get_access_token()
+        if not token:
+            return {"success": False, "error": "Failed to get PayPal access token"}
+
+        try:
+            import requests
+
+            response = requests.post(
+                f"{self.base_url}/v1/notifications/verify-webhook-signature",
+                json={
+                    "auth_algo": auth_algo,
+                    "cert_url": cert_url,
+                    "transmission_id": transmission_id,
+                    "transmission_sig": transmission_sig,
+                    "transmission_time": transmission_time,
+                    "webhook_id": webhook_id,
+                    "webhook_event": payload_for_verify,
+                },
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                timeout=self.request_timeout,
+            )
+            if response.status_code != 200:
+                logger.error("PayPal webhook verification failed: %s", response.text)
+                return {"success": False, "error": "PayPal webhook verification failed"}
+
+            data = response.json() or {}
+            status = data.get("verification_status") or data.get("verificationStatus")
+            if status != "SUCCESS":
+                return {"success": False, "error": "PayPal webhook verification failed"}
+
+            return {"success": True, "status": status}
+        except Exception as exc:
+            logger.error("PayPal webhook verification exception: %s", exc)
+            return {"success": False, "error": "PayPal webhook verification failed"}
 
 
 # ============== Mobile Money Provider ==============
@@ -752,6 +910,48 @@ class PaymentService:
             }
         return statuses
 
+    def _find_payment_record(self, provider: str, provider_payment_id: str):
+        from apps.payments.models import Payment
+
+        if not str(provider_payment_id or "").strip():
+            return None
+
+        lookup = (
+            models.Q(metadata__provider=provider, metadata__provider_payment_id=provider_payment_id)
+            | models.Q(stripe_payment_intent_id=provider_payment_id)
+        )
+        if provider == "paypal":
+            lookup |= models.Q(metadata__paypal_order_id=provider_payment_id)
+            lookup |= models.Q(metadata__paypal_capture_id=provider_payment_id)
+
+        return Payment.objects.filter(lookup).first()
+
+    def _persist_paypal_identifiers(
+        self,
+        payment,
+        *,
+        order_id: str | None = None,
+        capture_id: str | None = None,
+    ) -> None:
+        metadata = dict(payment.metadata or {})
+        changed_fields = []
+
+        if order_id and metadata.get("paypal_order_id") != order_id:
+            metadata["paypal_order_id"] = order_id
+        if capture_id and metadata.get("paypal_capture_id") != capture_id:
+            metadata["paypal_capture_id"] = capture_id
+
+        if metadata != (payment.metadata or {}):
+            payment.metadata = metadata
+            changed_fields.append("metadata")
+
+        if capture_id and payment.stripe_charge_id != capture_id:
+            payment.stripe_charge_id = capture_id
+            changed_fields.append("stripe_charge_id")
+
+        if changed_fields:
+            payment.save(update_fields=[*changed_fields, "updated_at"])
+
     def create_payment(
         self,
         provider: str,
@@ -808,13 +1008,19 @@ class PaymentService:
 
         if result.get("success"):
             provider_payment_id = result.get("payment_id")
-            payment.stripe_payment_intent_id = provider_payment_id  # reuse field for non-Stripe too
-            payment.metadata = {
+            metadata_update = {
                 **payment.metadata,
                 "provider_payment_id": provider_payment_id,
                 "checkout_url": result.get("checkout_url"),
                 "instructions": result.get("instructions"),
             }
+            if provider == "paypal" and provider_payment_id:
+                metadata_update["paypal_order_id"] = provider_payment_id
+            if provider == "paypal" and result.get("reference_id"):
+                metadata_update["paypal_reference_id"] = result.get("reference_id")
+
+            payment.stripe_payment_intent_id = provider_payment_id  # reuse field for non-Stripe too
+            payment.metadata = metadata_update
             payment.save(update_fields=["stripe_payment_intent_id", "metadata", "updated_at"])
         else:
             payment.status = "failed"
@@ -831,7 +1037,59 @@ class PaymentService:
         if provider not in self.providers:
             return {"success": False, "error": f"Unknown provider: {provider}"}
 
-        return self.providers[provider].verify_payment(payment_id)
+        result = self.providers[provider].verify_payment(payment_id)
+        if not result.get("success"):
+            return result
+
+        normalized_status = str(result.get("status", "")).upper()
+        lookup_payment_id = result.get("order_id") or payment_id
+        payment = self._find_payment_record(provider, lookup_payment_id)
+
+        if payment is None and provider == "paypal":
+            payment = self._find_payment_record(provider, result.get("capture_id", ""))
+
+        if payment and provider == "paypal":
+            self._persist_paypal_identifiers(
+                payment,
+                order_id=result.get("order_id") or lookup_payment_id,
+                capture_id=result.get("capture_id"),
+            )
+
+        if payment and normalized_status == "COMPLETED":
+            amount = Decimal(str(result.get("amount") or payment.amount or 0))
+            currency = str(result.get("currency") or payment.currency or "USD").upper()
+            self.process_successful_payment(provider, lookup_payment_id, amount, currency)
+            payment = self._find_payment_record(provider, lookup_payment_id) or payment
+            if provider == "paypal":
+                self._persist_paypal_identifiers(
+                    payment,
+                    order_id=result.get("order_id") or lookup_payment_id,
+                    capture_id=result.get("capture_id"),
+                )
+            return {
+                **result,
+                "local_payment_id": str(payment.id),
+                "local_status": payment.status,
+            }
+
+        if payment and normalized_status in {"FAILED", "VOIDED", "DENIED"}:
+            reason = result.get("message") or result.get("error") or "Payment was not completed"
+            self.process_failed_payment(provider, lookup_payment_id, reason)
+            payment = self._find_payment_record(provider, lookup_payment_id) or payment
+            return {
+                **result,
+                "local_payment_id": str(payment.id),
+                "local_status": payment.status,
+            }
+
+        if payment:
+            return {
+                **result,
+                "local_payment_id": str(payment.id),
+                "local_status": payment.status,
+            }
+
+        return result
 
     @transaction.atomic
     def process_successful_payment(
@@ -849,16 +1107,7 @@ class PaymentService:
 
         try:
             # Find payment record
-            payment = Payment.objects.filter(
-                metadata__provider=provider,
-                metadata__provider_payment_id=provider_payment_id
-            ).first()
-
-            if not payment:
-                # Check by external ID
-                payment = Payment.objects.filter(
-                    stripe_payment_intent_id=provider_payment_id
-                ).first()
+            payment = self._find_payment_record(provider, provider_payment_id)
 
             if not payment:
                 logger.error(f"Payment not found for ID: {provider_payment_id}")
@@ -1046,15 +1295,7 @@ class PaymentService:
         from apps.notifications.models import Notification
         from apps.payments.notifications import PaymentNotificationService
 
-        payment = Payment.objects.filter(
-            metadata__provider=provider,
-            metadata__provider_payment_id=provider_payment_id
-        ).first()
-
-        if not payment:
-            payment = Payment.objects.filter(
-                stripe_payment_intent_id=provider_payment_id
-            ).first()
+        payment = self._find_payment_record(provider, provider_payment_id)
 
         if not payment:
             return False
@@ -1276,14 +1517,43 @@ def handle_paypal_webhook(payload: dict, signature: str) -> Dict[str, Any]:
         return result
 
     event_type = result.get("event_type")
-    
+    resource = result.get("data", {}) or {}
+    related_ids = ((resource.get("supplementary_data") or {}).get("related_ids") or {})
+    order_id = related_ids.get("order_id")
+    capture_id = resource.get("id")
+
+    if event_type == "CHECKOUT.ORDER.APPROVED" and resource.get("id"):
+        verification = service.verify_payment("paypal", resource.get("id"))
+        return {**result, "verification": verification}
+
     if event_type == "PAYMENT.CAPTURE.COMPLETED":
-        resource = result.get("data", {})
-        service.process_successful_payment(
+        lookup_id = order_id or capture_id
+        processed = service.process_successful_payment(
             provider="paypal",
-            provider_payment_id=resource.get("id"),
+            provider_payment_id=lookup_id,
             amount=Decimal(resource.get("amount", {}).get("value", 0)),
             currency=resource.get("amount", {}).get("currency_code", "USD")
+        )
+        payment = service._find_payment_record("paypal", lookup_id) or service._find_payment_record(
+            "paypal", capture_id
+        )
+        if payment:
+            service._persist_paypal_identifiers(
+                payment,
+                order_id=order_id or lookup_id,
+                capture_id=capture_id,
+            )
+        return {**result, "processed": processed}
+
+    if event_type in {"PAYMENT.CAPTURE.DENIED", "CHECKOUT.ORDER.DECLINED"}:
+        service.process_failed_payment(
+            provider="paypal",
+            provider_payment_id=order_id or capture_id,
+            reason=(
+                resource.get("status_details", {}).get("reason")
+                or resource.get("status")
+                or "PayPal payment failed"
+            ),
         )
 
     return result

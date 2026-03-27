@@ -2,10 +2,12 @@
 Tests for payment WebSocket and webhook functionality.
 """
 
+import base64
 import json
 import pytest
 from unittest.mock import patch, MagicMock
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -13,8 +15,8 @@ from decimal import Decimal
 
 from apps.payments.models import Plan, Subscription, Payment
 from apps.payments.notifications import PaymentNotificationService
-from apps.payments.services import StripeService
-from apps.payments.providers import PaymentService
+from apps.payments.services import StripeService, InAppPurchaseService
+from apps.payments.providers import PayPalPaymentProvider, PaymentService
 from apps.payments.providers import handle_paypal_webhook, handle_mobile_money_webhook
 from apps.payments.views import payment_service
 
@@ -189,6 +191,49 @@ class TestPaymentEndpoints:
         assert "providers" in response.data
         assert len(response.data["plans"]) >= 1
 
+    def test_get_plans_includes_plan_types_and_extended_limits(self, api_client, user, plan):
+        api_client.force_authenticate(user=user)
+
+        plan.upload_limit_monthly = 180
+        plan.message_limit_daily = 500
+        plan.group_limit = 30
+        plan.bookmark_limit = 500
+        plan.search_results_limit = 100
+        plan.support_response_hours = 8
+        plan.metadata = {
+            "plan_type": "Power",
+            "ideal_for": "Heavy contributors and study leaders.",
+            "highlights": ["Large upload cap", "Certificates", "Priority perks"],
+        }
+        plan.save(
+            update_fields=[
+                "upload_limit_monthly",
+                "message_limit_daily",
+                "group_limit",
+                "bookmark_limit",
+                "search_results_limit",
+                "support_response_hours",
+                "metadata",
+                "updated_at",
+            ]
+        )
+
+        response = api_client.get("/api/payments/plans/")
+
+        assert response.status_code == 200
+        payload = next(item for item in response.data["plans"] if item["id"] == str(plan.id))
+        assert payload["plan_type"] == "Power"
+        assert payload["ideal_for"] == "Heavy contributors and study leaders."
+        assert payload["highlights"] == ["Large upload cap", "Certificates", "Priority perks"]
+        assert payload["upload_limit_monthly"] == 180
+        assert payload["message_limit_daily"] == 500
+        assert payload["group_limit"] == 30
+        assert payload["bookmark_limit"] == 500
+        assert payload["search_results_limit"] == 100
+        assert payload["support_response_hours"] == 8
+        assert payload["trial_preview"]["available"] is True
+        assert "limits" in payload
+
     def test_get_payment_provider_statuses(self, api_client, user):
         api_client.force_authenticate(user=user)
 
@@ -293,6 +338,59 @@ class TestPaymentEndpoints:
         assert payment.metadata.get("provider") == "paypal"
         assert subscription.status == "unpaid"
 
+    def test_get_subscription_syncs_pending_paypal_payment(self, api_client, user, plan):
+        api_client.force_authenticate(user=user)
+
+        subscription = Subscription.objects.create(
+            user=user,
+            plan=plan,
+            billing_period="monthly",
+            status="unpaid",
+        )
+        payment = Payment.objects.create(
+            user=user,
+            subscription=subscription,
+            amount=plan.price_monthly,
+            currency="USD",
+            payment_type="subscription",
+            status="pending",
+            stripe_payment_intent_id="PAYPAL-SUB-VERIFY",
+            metadata={
+                "provider": "paypal",
+                "provider_payment_id": "PAYPAL-SUB-VERIFY",
+            },
+        )
+
+        def fake_verify(provider, payment_id):
+            assert provider == "paypal"
+            assert payment_id == "PAYPAL-SUB-VERIFY"
+            payment_service.process_successful_payment(
+                "paypal",
+                "PAYPAL-SUB-VERIFY",
+                Decimal("9.99"),
+                "USD",
+            )
+            return {
+                "success": True,
+                "status": "COMPLETED",
+                "amount": Decimal("9.99"),
+                "currency": "USD",
+                "order_id": "PAYPAL-SUB-VERIFY",
+                "capture_id": "CAPTURE-SUB-1",
+            }
+
+        with patch.object(payment_service, "verify_payment", side_effect=fake_verify) as mock_verify:
+            response = api_client.get("/api/payments/subscription/")
+
+        assert response.status_code == 200
+        assert response.data["subscription"]["status"] == "active"
+        mock_verify.assert_called_once_with("paypal", "PAYPAL-SUB-VERIFY")
+
+        payment.refresh_from_db()
+        subscription.refresh_from_db()
+        assert payment.status == "succeeded"
+        assert subscription.status == "active"
+
     def test_start_trial_sets_trial_start_and_blocks_reuse(self, api_client, user, plan):
         api_client.force_authenticate(user=user)
 
@@ -312,6 +410,25 @@ class TestPaymentEndpoints:
         second_response = api_client.post("/api/payments/trial/", {}, format="json")
         assert second_response.status_code == 400
         assert "already used your trial" in second_response.data["error"].lower()
+
+    def test_trial_feature_access_uses_reduced_limits_and_locked_features(self, api_client, user):
+        api_client.force_authenticate(user=user)
+
+        start_response = api_client.post("/api/payments/trial/", {}, format="json")
+        assert start_response.status_code == 200
+
+        response = api_client.get("/api/payments/feature-access/")
+
+        assert response.status_code == 200
+        assert response.data["is_trial"] is True
+        assert response.data["is_trial_limited"] is True
+        assert response.data["upload_limit_monthly"] == 12
+        assert response.data["download_limit_monthly"] == 80
+        assert response.data["message_limit_daily"] == 40
+        assert response.data["group_limit"] == 3
+        assert response.data["support_response_hours"] == 48
+        assert "export_reports" in response.data["trial_locked_features"]
+        assert "phone_support" in response.data["trial_locked_features"]
 
     def test_admin_trial_uses_premium_for_seven_days(self, api_client):
         admin_user = get_user_model().objects.create_user(
@@ -486,6 +603,20 @@ class TestPaymentNotificationLinks:
 
 
 @pytest.mark.django_db
+def test_seed_default_plans_uses_env_backed_stripe_ids(monkeypatch):
+    monkeypatch.setenv("STRIPE_BASIC_MONTHLY_PRICE_ID", "price_basic_monthly_live")
+    monkeypatch.setenv("STRIPE_BASIC_YEARLY_PRICE_ID", "price_basic_yearly_live")
+    monkeypatch.setenv("STRIPE_BASIC_PRODUCT_ID", "prod_basic_live")
+
+    call_command("seed_default_plans")
+
+    plan = Plan.objects.get(tier="basic", is_active=True)
+    assert plan.stripe_monthly_price_id == "price_basic_monthly_live"
+    assert plan.stripe_yearly_price_id == "price_basic_yearly_live"
+    assert plan.stripe_product_id == "prod_basic_live"
+
+
+@pytest.mark.django_db
 def test_process_successful_payment_sets_receipt_url(user):
     service = PaymentService()
     service.providers["stripe"] = TestMultiProviderPayments()._stub_provider("STRIPE_TEST_001")
@@ -553,6 +684,54 @@ class TestMultiProviderPayments:
         assert payment.metadata.get("provider") == "paypal"
         assert payment.metadata.get("provider_payment_id") == "PAYPAL123"
         assert payment.stripe_payment_intent_id == "PAYPAL123"
+
+    def test_verify_payment_reconciles_completed_paypal_order(self, db, user):
+        class PayPalStub:
+            def create_payment(self, amount, currency, metadata):
+                return {
+                    "success": True,
+                    "payment_id": "PAYPALORDER123",
+                    "checkout_url": "http://example.com/paypal",
+                }
+
+            def verify_payment(self, payment_id):
+                return {
+                    "success": True,
+                    "status": "COMPLETED",
+                    "amount": Decimal("10.00"),
+                    "currency": "USD",
+                    "order_id": "PAYPALORDER123",
+                    "capture_id": "CAPTURE123",
+                }
+
+            def process_webhook(self, payload, signature):
+                return {"success": True, "event_type": "PAYMENT.CAPTURE.COMPLETED", "data": {}}
+
+            def refund_payment(self, payment_id, amount=None):
+                return {"success": True}
+
+        service = PaymentService()
+        service.providers["paypal"] = PayPalStub()
+
+        result = service.create_payment(
+            provider="paypal",
+            amount=Decimal("10.00"),
+            currency="USD",
+            description="Test PayPal verify",
+            user=user,
+            payment_type="one_time",
+        )
+
+        verify_result = service.verify_payment("paypal", "PAYPALORDER123")
+
+        assert verify_result["success"] is True
+        assert verify_result["status"] == "COMPLETED"
+
+        payment = Payment.objects.get(id=result["local_payment_id"])
+        assert payment.status == "succeeded"
+        assert payment.metadata.get("paypal_order_id") == "PAYPALORDER123"
+        assert payment.metadata.get("paypal_capture_id") == "CAPTURE123"
+        assert payment.stripe_charge_id == "CAPTURE123"
 
     def test_partial_payment_marks_partial(self, db, user):
         service = PaymentService()
@@ -697,7 +876,15 @@ class TestMultiProviderPayments:
 
         payload = {
             "event_type": "PAYMENT.CAPTURE.COMPLETED",
-            "resource": {"id": "PAYPAL777", "amount": {"value": "12.00", "currency_code": "USD"}},
+            "resource": {
+                "id": "CAPTURE777",
+                "amount": {"value": "12.00", "currency_code": "USD"},
+                "supplementary_data": {
+                    "related_ids": {
+                        "order_id": "PAYPAL777",
+                    }
+                },
+            },
         }
         response = handle_paypal_webhook(payload, "")
         assert response.get("success") is True
@@ -705,6 +892,8 @@ class TestMultiProviderPayments:
         payment = Payment.objects.get(id=result["local_payment_id"])
         assert payment.status in ["succeeded", "partial"]
         assert "receipt_url" in payment.metadata
+        assert payment.metadata.get("paypal_order_id") == "PAYPAL777"
+        assert payment.metadata.get("paypal_capture_id") == "CAPTURE777"
 
     def test_mobile_money_webhook_sets_receipt(self, db, user):
         service = PaymentService()
@@ -823,3 +1012,152 @@ def test_mpesa_stk_push_create_payment_success(settings, user):
     payment = Payment.objects.get(id=result["local_payment_id"])
     assert payment.metadata.get("provider") == "mobile_money"
     assert payment.metadata.get("provider_payment_id") == "ws_CO_999999"
+
+
+def test_paypal_provider_verify_payment_captures_approved_order(settings):
+    settings.PAYPAL_CLIENT_ID = "paypal-client-id"
+    settings.PAYPAL_CLIENT_SECRET = "paypal-client-secret"
+    provider = PayPalPaymentProvider()
+
+    class MockResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        @property
+        def ok(self):
+            return 200 <= self.status_code < 300
+
+        def json(self):
+            return self._payload
+
+    approved_order = {
+        "id": "ORDER123",
+        "status": "APPROVED",
+        "purchase_units": [
+            {
+                "reference_id": "local-payment-id",
+                "custom_id": "local-payment-id",
+                "amount": {"value": "19.99", "currency_code": "USD"},
+            }
+        ],
+    }
+    completed_order = {
+        "id": "ORDER123",
+        "status": "COMPLETED",
+        "purchase_units": [
+            {
+                "reference_id": "local-payment-id",
+                "custom_id": "local-payment-id",
+                "amount": {"value": "19.99", "currency_code": "USD"},
+                "payments": {
+                    "captures": [
+                        {
+                            "id": "CAPTURE123",
+                            "amount": {"value": "19.99", "currency_code": "USD"},
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+
+    with patch.object(provider, "_get_access_token", return_value="test-token"), patch(
+        "requests.get",
+        return_value=MockResponse(200, approved_order),
+    ) as order_request, patch(
+        "requests.post",
+        return_value=MockResponse(201, completed_order),
+    ) as capture_request:
+        result = provider.verify_payment("ORDER123")
+
+    assert order_request.called
+    assert capture_request.called
+    assert result["success"] is True
+    assert result["status"] == "COMPLETED"
+    assert result["order_id"] == "ORDER123"
+    assert result["capture_id"] == "CAPTURE123"
+
+
+def test_validate_apple_receipt_uses_verify_receipt(settings):
+    settings.APPLE_IAP_SHARED_SECRET = "apple-secret"
+    settings.APPLE_IAP_USE_SANDBOX = True
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+            self.status_code = 200
+            self.text = json.dumps(payload)
+            self.content = self.text.encode()
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    payload = {
+        "status": 0,
+        "latest_receipt_info": [
+            {
+                "product_id": "apple.monthly",
+                "transaction_id": "tx_123",
+                "original_transaction_id": "otx_123",
+                "expires_date_ms": "1730000000000",
+            }
+        ],
+    }
+
+    with patch("apps.payments.services.requests.post", return_value=MockResponse(payload)) as req:
+        service = InAppPurchaseService()
+        result = service.validate_apple_receipt(base64.b64encode(b"{}").decode("utf-8"))
+
+    assert req.called
+    assert result["success"] is True
+    assert result["validation_source"] == "apple_verify_receipt"
+    assert result["product_id"] == "apple.monthly"
+    assert result["transaction_id"] == "tx_123"
+
+
+def test_validate_apple_receipt_falls_back_without_secret(settings):
+    settings.APPLE_IAP_SHARED_SECRET = ""
+    receipt_payload = {
+        "productId": "apple.yearly",
+        "transactionId": "tx_abc",
+        "originalTransactionId": "otx_abc",
+        "expires_date_ms": "1730000000000",
+    }
+    receipt_data = base64.b64encode(json.dumps(receipt_payload).encode("utf-8")).decode("utf-8")
+
+    service = InAppPurchaseService()
+    result = service.validate_apple_receipt(receipt_data)
+
+    assert result["success"] is True
+    assert result["validation_source"] == "fallback"
+    assert result["product_id"] == "apple.yearly"
+    assert result["transaction_id"] == "tx_abc"
+
+
+@pytest.mark.django_db
+def test_validate_google_purchase_fallback_without_service_account(settings):
+    settings.GOOGLE_PLAY_PACKAGE_NAME = ""
+    settings.GOOGLE_PLAY_STRICT_VALIDATION = False
+
+    service = InAppPurchaseService()
+    result = service.validate_google_purchase("google.monthly", "token-123")
+
+    assert result["success"] is True
+    assert result["validation_source"] == "fallback"
+
+
+@pytest.mark.django_db
+def test_validate_google_purchase_strict_requires_service_account(settings):
+    settings.GOOGLE_PLAY_PACKAGE_NAME = "com.example.app"
+    settings.GOOGLE_PLAY_STRICT_VALIDATION = True
+
+    service = InAppPurchaseService()
+    with patch.object(service, "_get_google_access_token", return_value=""):
+        result = service.validate_google_purchase("google.monthly", "token-123")
+
+    assert result["success"] is False

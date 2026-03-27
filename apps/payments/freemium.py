@@ -27,7 +27,7 @@ class Tier(str, Enum):
 class Feature(str, Enum):
     """Available features in the platform."""
 
-    # Core features (Free)
+    # Core features (Free - limited)
     CALENDAR = "calendar"
     ANNOUNCEMENTS = "announcements"
     BASIC_LIBRARY = "basic_library"
@@ -42,6 +42,42 @@ class Feature(str, Enum):
     ADVANCED_ANALYTICS = "advanced_analytics"
     EXTRA_STORAGE = "extra_storage"
     NO_ADS = "no_ads"
+    UNLIMITED_DOWNLOADS = "unlimited_downloads"
+    UNLIMITED_UPLOADS = "unlimited_uploads"
+    UNLIMITED_MESSAGES = "unlimited_messages"
+    UNLIMITED_GROUPS = "unlimited_groups"
+    ADVANCED_SEARCH_FILTERS = "advanced_search_filters"
+    INSTANT_NOTIFICATIONS = "instant_notifications"
+    PRIORITY_ACCESS = "priority_access"
+    NO_WATERMARKS = "no_watermarks"
+    CUSTOM_FOLDERS = "custom_folders"
+    RECURRING_EVENTS = "recurring_events"
+    CALENDAR_SHARING = "calendar_sharing"
+    RICH_TEXT_EDITING = "rich_text_editing"
+    COLLABORATIVE_EDITING = "collaborative_editing"
+    VERSION_HISTORY = "version_history"
+    LEADERBOARD_PRIZES = "leaderboard_prizes"
+    ACHIEVEMENT_SHARING = "achievement_sharing"
+    DAILY_STREAK_REWARDS = "daily_streak_rewards"
+    EMAIL_DIGEST = "email_digest"
+    PUSH_NOTIFICATIONS_FEATURE = "push_notifications_feature"
+    PROFILE_VERIFICATION = "profile_verification"
+    CUSTOM_USERNAME = "custom_username"
+    THEME_CUSTOMIZATION = "theme_customization"
+    PRIVACY_CONTROLS = "privacy_controls"
+    STUDY_SCHEDULES = "study_schedules"
+    BULK_UPLOADS = "bulk_uploads"
+    PRIVATE_UPLOADS = "private_uploads"
+    UPLOAD_APPROVAL = "upload_approval"
+    RESOURCE_REQUESTS = "resource_requests"
+    DOWNLOAD_TRACKING = "download_tracking"
+    RATING_BREAKDOWN = "rating_breakdown"
+    USAGE_STATISTICS = "usage_statistics"
+    COMPARISON_STATS = "comparison_stats"
+    EXPORT_REPORTS = "export_reports"
+    LIVE_CHAT = "live_chat"
+    PHONE_SUPPORT = "phone_support"
+    PRIORITY_RESPONSE = "priority_response"
 
     # Premium plan features
     ALL_INTEGRATIONS = "all_integrations"
@@ -96,6 +132,211 @@ FEATURE_METADATA: Dict[Feature, dict] = {
     Feature.AI_FEATURES: {
         "name": "AI Features",
         "description": "Access to AI-powered features",
+        "category": "basic",
+    },
+    Feature.AI_SUMMARIZATION: {
+        "name": "AI Summarization",
+        "description": "AI-powered content summarization",
+        "category": "basic",
+    },
+    Feature.AI_CHAT: {
+        "name": "AI Chat",
+        "description": "AI assistant for Q&A",
+        "category": "basic",
+    },
+    Feature.ADVANCED_ANALYTICS: {
+        "name": "Advanced Analytics",
+        "description": "Detailed analytics and insights",
+        "category": "basic",
+    },
+    Feature.EXTRA_STORAGE: {
+        "name": "Extra Storage",
+        "description": "Additional cloud storage",
+        "category": "basic",
+    },
+    Feature.NO_ADS: {
+        "name": "No Ads",
+        "description": "Ad-free experience",
+        "category": "basic",
+    },
+    Feature.UNLIMITED_DOWNLOADS: {
+        "name": "Unlimited Downloads",
+        "description": "Download unlimited resources per month",
+        "category": "basic",
+    },
+    Feature.UNLIMITED_UPLOADS: {
+        "name": "Unlimited Uploads",
+        "description": "Upload unlimited resources per month",
+        "category": "basic",
+    },
+    Feature.UNLIMITED_MESSAGES: {
+        "name": "Unlimited Messages",
+        "description": "Send unlimited messages per day",
+        "category": "basic",
+    },
+    Feature.UNLIMITED_GROUPS: {
+        "name": "Unlimited Groups",
+        "description": "Join unlimited study groups",
+        "category": "basic",
+    },
+    Feature.ADVANCED_SEARCH_FILTERS: {
+        "name": "Advanced Search Filters",
+        "description": "Filter by date, rating, file type, and more",
+        "category": "basic",
+    },
+    Feature.INSTANT_NOTIFICATIONS: {
+        "name": "Instant Notifications",
+        "description": "Receive notifications instantly",
+        "category": "basic",
+    },
+    Feature.PRIORITY_ACCESS: {
+        "name": "Priority Access",
+        "description": "Instant access to new resources",
+        "category": "basic",
+    },
+    Feature.NO_WATERMARKS: {
+        "name": "No Watermarks",
+        "description": "Download clean files without watermarks",
+        "category": "basic",
+    },
+    Feature.CUSTOM_FOLDERS: {
+        "name": "Custom Folders",
+        "description": "Organize resources into folders",
+        "category": "basic",
+    },
+    Feature.RECURRING_EVENTS: {
+        "name": "Recurring Events",
+        "description": "Create repeating calendar events",
+        "category": "basic",
+    },
+    Feature.CALENDAR_SHARING: {
+        "name": "Calendar Sharing",
+        "description": "Share calendar with classmates",
+        "category": "basic",
+    },
+    Feature.RICH_TEXT_EDITING: {
+        "name": "Rich Text Editing",
+        "description": "Format documents with rich text",
+        "category": "basic",
+    },
+    Feature.COLLABORATIVE_EDITING: {
+        "name": "Collaborative Editing",
+        "description": "Co-edit documents with others",
+        "category": "basic",
+    },
+    Feature.VERSION_HISTORY: {
+        "name": "Version History",
+        "description": "Track previous versions of uploads",
+        "category": "basic",
+    },
+    Feature.LEADERBOARD_PRIZES: {
+        "name": "Leaderboard Prizes",
+        "description": "Win rewards for top leaderboard positions",
+        "category": "basic",
+    },
+    Feature.ACHIEVEMENT_SHARING: {
+        "name": "Achievement Sharing",
+        "description": "Share achievements on social media",
+        "category": "basic",
+    },
+    Feature.DAILY_STREAK_REWARDS: {
+        "name": "Daily Streak Rewards",
+        "description": "Get rewards for daily login streaks",
+        "category": "basic",
+    },
+    Feature.EMAIL_DIGEST: {
+        "name": "Email Digest",
+        "description": "Get daily/weekly email summaries",
+        "category": "basic",
+    },
+    Feature.PUSH_NOTIFICATIONS_FEATURE: {
+        "name": "Push Notifications",
+        "description": "Receive push notifications for new resources",
+        "category": "basic",
+    },
+    Feature.PROFILE_VERIFICATION: {
+        "name": "Profile Verification",
+        "description": "Get verified status badge",
+        "category": "basic",
+    },
+    Feature.CUSTOM_USERNAME: {
+        "name": "Custom Username",
+        "description": "Set a custom username",
+        "category": "basic",
+    },
+    Feature.THEME_CUSTOMIZATION: {
+        "name": "Theme Customization",
+        "description": "Customize app theme and colors",
+        "category": "basic",
+    },
+    Feature.PRIVACY_CONTROLS: {
+        "name": "Privacy Controls",
+        "description": "Hide online status and activity",
+        "category": "basic",
+    },
+    Feature.STUDY_SCHEDULES: {
+        "name": "Study Schedules",
+        "description": "Create custom study schedules",
+        "category": "basic",
+    },
+    Feature.BULK_UPLOADS: {
+        "name": "Bulk Uploads",
+        "description": "Upload multiple files at once",
+        "category": "basic",
+    },
+    Feature.PRIVATE_UPLOADS: {
+        "name": "Private Uploads",
+        "description": "Upload resources privately",
+        "category": "basic",
+    },
+    Feature.UPLOAD_APPROVAL: {
+        "name": "Upload Approval",
+        "description": "Skip admin approval for uploads",
+        "category": "basic",
+    },
+    Feature.RESOURCE_REQUESTS: {
+        "name": "Resource Requests",
+        "description": "Request specific resources from others",
+        "category": "basic",
+    },
+    Feature.DOWNLOAD_TRACKING: {
+        "name": "Download Tracking",
+        "description": "See who downloaded your uploads",
+        "category": "basic",
+    },
+    Feature.RATING_BREAKDOWN: {
+        "name": "Rating Breakdown",
+        "description": "See detailed rating distribution",
+        "category": "basic",
+    },
+    Feature.USAGE_STATISTICS: {
+        "name": "Usage Statistics",
+        "description": "View how often your resources are viewed",
+        "category": "basic",
+    },
+    Feature.COMPARISON_STATS: {
+        "name": "Comparison Stats",
+        "description": "Compare your stats to campus averages",
+        "category": "basic",
+    },
+    Feature.EXPORT_REPORTS: {
+        "name": "Export Reports",
+        "description": "Download your activity reports",
+        "category": "basic",
+    },
+    Feature.LIVE_CHAT: {
+        "name": "Live Chat",
+        "description": "Use in-app support chat",
+        "category": "basic",
+    },
+    Feature.PHONE_SUPPORT: {
+        "name": "Phone Support",
+        "description": "Call support line",
+        "category": "basic",
+    },
+    Feature.PRIORITY_RESPONSE: {
+        "name": "Priority Response",
+        "description": "Get faster support response times",
         "category": "basic",
     },
     Feature.AI_SUMMARIZATION: {
@@ -218,6 +459,38 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.ADVANCED_ANALYTICS,
         Feature.EXTRA_STORAGE,
         Feature.NO_ADS,
+        Feature.ADVANCED_SEARCH_FILTERS,
+        Feature.INSTANT_NOTIFICATIONS,
+        Feature.PRIORITY_ACCESS,
+        Feature.NO_WATERMARKS,
+        Feature.CUSTOM_FOLDERS,
+        Feature.RECURRING_EVENTS,
+        Feature.CALENDAR_SHARING,
+        Feature.RICH_TEXT_EDITING,
+        Feature.COLLABORATIVE_EDITING,
+        Feature.VERSION_HISTORY,
+        Feature.LEADERBOARD_PRIZES,
+        Feature.ACHIEVEMENT_SHARING,
+        Feature.DAILY_STREAK_REWARDS,
+        Feature.EMAIL_DIGEST,
+        Feature.PUSH_NOTIFICATIONS_FEATURE,
+        Feature.PROFILE_VERIFICATION,
+        Feature.CUSTOM_USERNAME,
+        Feature.THEME_CUSTOMIZATION,
+        Feature.PRIVACY_CONTROLS,
+        Feature.STUDY_SCHEDULES,
+        Feature.BULK_UPLOADS,
+        Feature.PRIVATE_UPLOADS,
+        Feature.UPLOAD_APPROVAL,
+        Feature.RESOURCE_REQUESTS,
+        Feature.DOWNLOAD_TRACKING,
+        Feature.RATING_BREAKDOWN,
+        Feature.USAGE_STATISTICS,
+        Feature.COMPARISON_STATS,
+        Feature.EXPORT_REPORTS,
+        Feature.LIVE_CHAT,
+        Feature.PHONE_SUPPORT,
+        Feature.PRIORITY_RESPONSE,
     },
     Tier.PREMIUM: {
         Feature.CALENDAR,
@@ -232,6 +505,38 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.ADVANCED_ANALYTICS,
         Feature.EXTRA_STORAGE,
         Feature.NO_ADS,
+        Feature.ADVANCED_SEARCH_FILTERS,
+        Feature.INSTANT_NOTIFICATIONS,
+        Feature.PRIORITY_ACCESS,
+        Feature.NO_WATERMARKS,
+        Feature.CUSTOM_FOLDERS,
+        Feature.RECURRING_EVENTS,
+        Feature.CALENDAR_SHARING,
+        Feature.RICH_TEXT_EDITING,
+        Feature.COLLABORATIVE_EDITING,
+        Feature.VERSION_HISTORY,
+        Feature.LEADERBOARD_PRIZES,
+        Feature.ACHIEVEMENT_SHARING,
+        Feature.DAILY_STREAK_REWARDS,
+        Feature.EMAIL_DIGEST,
+        Feature.PUSH_NOTIFICATIONS_FEATURE,
+        Feature.PROFILE_VERIFICATION,
+        Feature.CUSTOM_USERNAME,
+        Feature.THEME_CUSTOMIZATION,
+        Feature.PRIVACY_CONTROLS,
+        Feature.STUDY_SCHEDULES,
+        Feature.BULK_UPLOADS,
+        Feature.PRIVATE_UPLOADS,
+        Feature.UPLOAD_APPROVAL,
+        Feature.RESOURCE_REQUESTS,
+        Feature.DOWNLOAD_TRACKING,
+        Feature.RATING_BREAKDOWN,
+        Feature.USAGE_STATISTICS,
+        Feature.COMPARISON_STATS,
+        Feature.EXPORT_REPORTS,
+        Feature.LIVE_CHAT,
+        Feature.PHONE_SUPPORT,
+        Feature.PRIORITY_RESPONSE,
         Feature.ALL_INTEGRATIONS,
         Feature.PRIORITY_SUPPORT,
         Feature.CERTIFICATES,
@@ -252,6 +557,42 @@ TIER_FEATURES: Dict[Tier, Set[Feature]] = {
         Feature.ADVANCED_ANALYTICS,
         Feature.EXTRA_STORAGE,
         Feature.NO_ADS,
+        Feature.UNLIMITED_DOWNLOADS,
+        Feature.UNLIMITED_UPLOADS,
+        Feature.UNLIMITED_MESSAGES,
+        Feature.UNLIMITED_GROUPS,
+        Feature.ADVANCED_SEARCH_FILTERS,
+        Feature.INSTANT_NOTIFICATIONS,
+        Feature.PRIORITY_ACCESS,
+        Feature.NO_WATERMARKS,
+        Feature.CUSTOM_FOLDERS,
+        Feature.RECURRING_EVENTS,
+        Feature.CALENDAR_SHARING,
+        Feature.RICH_TEXT_EDITING,
+        Feature.COLLABORATIVE_EDITING,
+        Feature.VERSION_HISTORY,
+        Feature.LEADERBOARD_PRIZES,
+        Feature.ACHIEVEMENT_SHARING,
+        Feature.DAILY_STREAK_REWARDS,
+        Feature.EMAIL_DIGEST,
+        Feature.PUSH_NOTIFICATIONS_FEATURE,
+        Feature.PROFILE_VERIFICATION,
+        Feature.CUSTOM_USERNAME,
+        Feature.THEME_CUSTOMIZATION,
+        Feature.PRIVACY_CONTROLS,
+        Feature.STUDY_SCHEDULES,
+        Feature.BULK_UPLOADS,
+        Feature.PRIVATE_UPLOADS,
+        Feature.UPLOAD_APPROVAL,
+        Feature.RESOURCE_REQUESTS,
+        Feature.DOWNLOAD_TRACKING,
+        Feature.RATING_BREAKDOWN,
+        Feature.USAGE_STATISTICS,
+        Feature.COMPARISON_STATS,
+        Feature.EXPORT_REPORTS,
+        Feature.LIVE_CHAT,
+        Feature.PHONE_SUPPORT,
+        Feature.PRIORITY_RESPONSE,
         Feature.ALL_INTEGRATIONS,
         Feature.PRIORITY_SUPPORT,
         Feature.CERTIFICATES,
@@ -286,19 +627,206 @@ TIER_PRICING: Dict[Tier, dict] = {
 }
 
 
+TIER_MAX_UPLOAD_SIZE_MB: Dict[Tier, int] = {
+    Tier.FREE: 8,
+    Tier.BASIC: 40,
+    Tier.PREMIUM: 150,
+    Tier.ENTERPRISE: 512,
+}
+
+
 TIER_STORAGE_LIMITS: Dict[Tier, int] = {
     Tier.FREE: 1,
-    Tier.BASIC: 10,
-    Tier.PREMIUM: 100,
-    Tier.ENTERPRISE: 1000,
+    Tier.BASIC: 8,
+    Tier.PREMIUM: 40,
+    Tier.ENTERPRISE: 500,
 }
 
 
 TIER_DOWNLOAD_LIMITS: Dict[Tier, int] = {
-    Tier.FREE: 50,
-    Tier.BASIC: 500,
+    Tier.FREE: 25,
+    Tier.BASIC: 250,
+    Tier.PREMIUM: 1500,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_UPLOAD_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 4,
+    Tier.BASIC: 40,
+    Tier.PREMIUM: 180,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_MESSAGE_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 8,
+    Tier.BASIC: 120,
+    Tier.PREMIUM: 500,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_GROUP_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 2,
+    Tier.BASIC: 8,
+    Tier.PREMIUM: 30,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_BOOKMARK_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 15,
+    Tier.BASIC: 120,
+    Tier.PREMIUM: 500,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_EVENT_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 6,
+    Tier.BASIC: 40,
+    Tier.PREMIUM: 200,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_POINTS_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 250,
+    Tier.BASIC: 5000,
+    Tier.PREMIUM: 25000,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_BADGE_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 3,
+    Tier.BASIC: 20,
     Tier.PREMIUM: -1,
     Tier.ENTERPRISE: -1,
+}
+
+
+TIER_SEARCH_RESULTS_LIMITS: Dict[Tier, int] = {
+    Tier.FREE: 6,
+    Tier.BASIC: 30,
+    Tier.PREMIUM: 100,
+    Tier.ENTERPRISE: -1,
+}
+
+
+TIER_NOTIFICATION_DELAY_HOURS: Dict[Tier, int] = {
+    Tier.FREE: 6,
+    Tier.BASIC: 1,
+    Tier.PREMIUM: 0,
+    Tier.ENTERPRISE: 0,
+}
+
+
+TIER_SUPPORT_RESPONSE_HOURS: Dict[Tier, int] = {
+    Tier.FREE: 72,
+    Tier.BASIC: 24,
+    Tier.PREMIUM: 8,
+    Tier.ENTERPRISE: 1,
+}
+
+
+TRIAL_LIMIT_OVERRIDES: Dict[Tier, dict] = {
+    Tier.BASIC: {
+        "storage_gb": 2,
+        "max_upload_mb": 20,
+        "downloads_monthly": 80,
+        "unlimited_downloads": False,
+        "upload_limit_monthly": 12,
+        "message_limit_daily": 40,
+        "group_limit": 3,
+        "bookmark_limit": 40,
+        "event_limit_monthly": 12,
+        "points_limit_monthly": 1200,
+        "badge_limit": 6,
+        "search_results_limit": 12,
+        "notification_delay_hours": 2,
+        "support_response_hours": 48,
+        "priority_support": False,
+        "early_access": False,
+    },
+    Tier.PREMIUM: {
+        "storage_gb": 12,
+        "max_upload_mb": 80,
+        "downloads_monthly": 320,
+        "unlimited_downloads": False,
+        "upload_limit_monthly": 30,
+        "message_limit_daily": 120,
+        "group_limit": 8,
+        "bookmark_limit": 120,
+        "event_limit_monthly": 40,
+        "points_limit_monthly": 6000,
+        "badge_limit": 18,
+        "search_results_limit": 35,
+        "notification_delay_hours": 1,
+        "support_response_hours": 24,
+        "priority_support": False,
+        "early_access": False,
+    },
+}
+
+
+TRIAL_FEATURE_EXCLUSIONS: Dict[Tier, Set[Feature]] = {
+    Tier.BASIC: {
+        Feature.EXPORT_REPORTS,
+        Feature.LIVE_CHAT,
+        Feature.PHONE_SUPPORT,
+        Feature.PRIORITY_RESPONSE,
+    },
+    Tier.PREMIUM: {
+        Feature.ALL_INTEGRATIONS,
+        Feature.PRIORITY_SUPPORT,
+        Feature.CERTIFICATES,
+        Feature.EXPORT_DATA,
+        Feature.LIVE_CHAT,
+        Feature.PHONE_SUPPORT,
+        Feature.PRIORITY_RESPONSE,
+    },
+}
+
+
+PLAN_PROFILE_BY_TIER: Dict[Tier, dict] = {
+    Tier.FREE: {
+        "plan_type": "Starter",
+        "ideal_for": "Light browsing, core calendar access, and occasional downloads.",
+        "highlights": [
+            "Core study tools",
+            "Basic library access",
+            "Announcements and calendar",
+        ],
+    },
+    Tier.BASIC: {
+        "plan_type": "Focus",
+        "ideal_for": "Active students who need AI help and stronger daily limits.",
+        "highlights": [
+            "AI chat and summaries",
+            "Analytics and folders",
+            "Moderate creator limits",
+        ],
+    },
+    Tier.PREMIUM: {
+        "plan_type": "Power",
+        "ideal_for": "Heavy contributors, study leaders, and serious daily use.",
+        "highlights": [
+            "Large upload and download caps",
+            "Advanced search and certificates",
+            "Priority perks and early access",
+        ],
+    },
+    Tier.ENTERPRISE: {
+        "plan_type": "Campus",
+        "ideal_for": "Departments, teams, and institution-scale collaboration.",
+        "highlights": [
+            "Enterprise controls",
+            "Unlimited collaboration workflows",
+            "Dedicated operational support",
+        ],
+    },
 }
 
 
@@ -333,13 +861,27 @@ class TierInfo:
     features: List[Feature]
     storage_limit_gb: int
     download_limit_monthly: int
+    upload_limit_monthly: int
+    message_limit_daily: int
+    group_limit: int
+    bookmark_limit: int
+    event_limit_monthly: int
+    points_limit_monthly: int
+    badge_limit: int
+    search_results_limit: int
+    notification_delay_hours: int
+    support_response_hours: int
     is_popular: bool = False
 
     def to_dict(self) -> dict:
+        profile = get_plan_profile(self.tier)
         return {
             "tier": self.tier.value,
             "name": self.name,
             "description": self.description,
+            "plan_type": profile["plan_type"],
+            "ideal_for": profile["ideal_for"],
+            "highlights": profile["highlights"],
             "price_monthly": self.price_monthly,
             "price_yearly": self.price_yearly,
             "features": [feature.value for feature in self.features],
@@ -354,6 +896,16 @@ class TierInfo:
             ],
             "storage_limit_gb": self.storage_limit_gb,
             "download_limit_monthly": self.download_limit_monthly,
+            "upload_limit_monthly": self.upload_limit_monthly,
+            "message_limit_daily": self.message_limit_daily,
+            "group_limit": self.group_limit,
+            "bookmark_limit": self.bookmark_limit,
+            "event_limit_monthly": self.event_limit_monthly,
+            "points_limit_monthly": self.points_limit_monthly,
+            "badge_limit": self.badge_limit,
+            "search_results_limit": self.search_results_limit,
+            "notification_delay_hours": self.notification_delay_hours,
+            "support_response_hours": self.support_response_hours,
             "is_popular": self.is_popular,
         }
 
@@ -362,43 +914,83 @@ TIER_INFO: Dict[Tier, TierInfo] = {
     Tier.FREE: TierInfo(
         tier=Tier.FREE,
         name="Free",
-        description="Starter access with core study features.",
+        description="Starter access with tighter limits for light use.",
         price_monthly=0,
         price_yearly=0,
         features=list(TIER_FEATURES[Tier.FREE]),
         storage_limit_gb=TIER_STORAGE_LIMITS[Tier.FREE],
         download_limit_monthly=TIER_DOWNLOAD_LIMITS[Tier.FREE],
+        upload_limit_monthly=TIER_UPLOAD_LIMITS[Tier.FREE],
+        message_limit_daily=TIER_MESSAGE_LIMITS[Tier.FREE],
+        group_limit=TIER_GROUP_LIMITS[Tier.FREE],
+        bookmark_limit=TIER_BOOKMARK_LIMITS[Tier.FREE],
+        event_limit_monthly=TIER_EVENT_LIMITS[Tier.FREE],
+        points_limit_monthly=TIER_POINTS_LIMITS[Tier.FREE],
+        badge_limit=TIER_BADGE_LIMITS[Tier.FREE],
+        search_results_limit=TIER_SEARCH_RESULTS_LIMITS[Tier.FREE],
+        notification_delay_hours=TIER_NOTIFICATION_DELAY_HOURS[Tier.FREE],
+        support_response_hours=TIER_SUPPORT_RESPONSE_HOURS[Tier.FREE],
     ),
     Tier.BASIC: TierInfo(
         tier=Tier.BASIC,
         name="Basic",
-        description="Guided upgrade with AI tools and larger limits.",
+        description="Focused student plan with AI tools and stronger daily caps.",
         price_monthly=5.99,
         price_yearly=59.99,
         features=list(TIER_FEATURES[Tier.BASIC]),
         storage_limit_gb=TIER_STORAGE_LIMITS[Tier.BASIC],
         download_limit_monthly=TIER_DOWNLOAD_LIMITS[Tier.BASIC],
+        upload_limit_monthly=TIER_UPLOAD_LIMITS[Tier.BASIC],
+        message_limit_daily=TIER_MESSAGE_LIMITS[Tier.BASIC],
+        group_limit=TIER_GROUP_LIMITS[Tier.BASIC],
+        bookmark_limit=TIER_BOOKMARK_LIMITS[Tier.BASIC],
+        event_limit_monthly=TIER_EVENT_LIMITS[Tier.BASIC],
+        points_limit_monthly=TIER_POINTS_LIMITS[Tier.BASIC],
+        badge_limit=TIER_BADGE_LIMITS[Tier.BASIC],
+        search_results_limit=TIER_SEARCH_RESULTS_LIMITS[Tier.BASIC],
+        notification_delay_hours=TIER_NOTIFICATION_DELAY_HOURS[Tier.BASIC],
+        support_response_hours=TIER_SUPPORT_RESPONSE_HOURS[Tier.BASIC],
         is_popular=True,
     ),
     Tier.PREMIUM: TierInfo(
         tier=Tier.PREMIUM,
         name="Premium",
-        description="More power for committed learners and campus teams.",
+        description="Power-user plan with larger limits, certificates, and premium perks.",
         price_monthly=12.00,
         price_yearly=120.00,
         features=list(TIER_FEATURES[Tier.PREMIUM]),
         storage_limit_gb=TIER_STORAGE_LIMITS[Tier.PREMIUM],
         download_limit_monthly=TIER_DOWNLOAD_LIMITS[Tier.PREMIUM],
+        upload_limit_monthly=TIER_UPLOAD_LIMITS[Tier.PREMIUM],
+        message_limit_daily=TIER_MESSAGE_LIMITS[Tier.PREMIUM],
+        group_limit=TIER_GROUP_LIMITS[Tier.PREMIUM],
+        bookmark_limit=TIER_BOOKMARK_LIMITS[Tier.PREMIUM],
+        event_limit_monthly=TIER_EVENT_LIMITS[Tier.PREMIUM],
+        points_limit_monthly=TIER_POINTS_LIMITS[Tier.PREMIUM],
+        badge_limit=TIER_BADGE_LIMITS[Tier.PREMIUM],
+        search_results_limit=TIER_SEARCH_RESULTS_LIMITS[Tier.PREMIUM],
+        notification_delay_hours=TIER_NOTIFICATION_DELAY_HOURS[Tier.PREMIUM],
+        support_response_hours=TIER_SUPPORT_RESPONSE_HOURS[Tier.PREMIUM],
     ),
     Tier.ENTERPRISE: TierInfo(
         tier=Tier.ENTERPRISE,
         name="Enterprise",
-        description="Institution-grade access for operations and advanced workloads.",
+        description="Institution-grade access for departments and high-scale collaboration.",
         price_monthly=49.00,
         price_yearly=490.00,
         features=list(TIER_FEATURES[Tier.ENTERPRISE]),
         storage_limit_gb=TIER_STORAGE_LIMITS[Tier.ENTERPRISE],
         download_limit_monthly=TIER_DOWNLOAD_LIMITS[Tier.ENTERPRISE],
+        upload_limit_monthly=TIER_UPLOAD_LIMITS[Tier.ENTERPRISE],
+        message_limit_daily=TIER_MESSAGE_LIMITS[Tier.ENTERPRISE],
+        group_limit=TIER_GROUP_LIMITS[Tier.ENTERPRISE],
+        bookmark_limit=TIER_BOOKMARK_LIMITS[Tier.ENTERPRISE],
+        event_limit_monthly=TIER_EVENT_LIMITS[Tier.ENTERPRISE],
+        points_limit_monthly=TIER_POINTS_LIMITS[Tier.ENTERPRISE],
+        badge_limit=TIER_BADGE_LIMITS[Tier.ENTERPRISE],
+        search_results_limit=TIER_SEARCH_RESULTS_LIMITS[Tier.ENTERPRISE],
+        notification_delay_hours=TIER_NOTIFICATION_DELAY_HOURS[Tier.ENTERPRISE],
+        support_response_hours=TIER_SUPPORT_RESPONSE_HOURS[Tier.ENTERPRISE],
     ),
 }
 
@@ -413,6 +1005,17 @@ def get_tier_from_string(tier_str: str) -> Tier:
     if normalized == "pro":
         return Tier.PREMIUM
     return Tier.FREE
+
+
+def get_plan_profile(tier: Tier) -> dict:
+    """Return presentation metadata for a plan tier."""
+
+    profile = PLAN_PROFILE_BY_TIER.get(tier, PLAN_PROFILE_BY_TIER[Tier.FREE])
+    return {
+        "plan_type": profile["plan_type"],
+        "ideal_for": profile["ideal_for"],
+        "highlights": list(profile["highlights"]),
+    }
 
 
 def _get_role_code(user) -> str:
@@ -577,19 +1180,48 @@ def get_user_tier(user) -> Tier:
     return Tier.FREE
 
 
+def get_trial_feature_exclusions(user, subscription=None) -> Set[Feature]:
+    """Return the features intentionally locked during a free trial."""
+
+    if not user or not getattr(user, "is_authenticated", False):
+        return set()
+
+    trial_subscription = subscription or get_active_subscription(user)
+    if (
+        not trial_subscription
+        or getattr(trial_subscription, "status", None) != "trialing"
+        or not getattr(trial_subscription, "plan", None)
+    ):
+        return set()
+
+    trial_tier = get_tier_from_string(trial_subscription.plan.tier)
+    return TRIAL_FEATURE_EXCLUSIONS.get(trial_tier, set()).copy()
+
+
 def has_feature(user, feature: Feature) -> bool:
     """Check if a user has access to a specific feature."""
 
     if not user or not getattr(user, "is_authenticated", False):
         return feature in TIER_FEATURES[Tier.FREE]
 
-    return feature in TIER_FEATURES[get_user_tier(user)]
+    return feature in get_user_features(user)
 
 
 def get_user_features(user) -> Set[Feature]:
     """Get all features available to a user based on their tier."""
 
-    return TIER_FEATURES[get_user_tier(user)].copy()
+    if not user or not getattr(user, "is_authenticated", False):
+        return TIER_FEATURES[Tier.FREE].copy()
+
+    subscription = get_active_subscription(user)
+    tier = (
+        get_tier_from_string(subscription.plan.tier)
+        if subscription and getattr(subscription, "plan", None)
+        else get_user_tier(user)
+    )
+    features = TIER_FEATURES[tier].copy()
+    features -= get_trial_feature_exclusions(user, subscription=subscription)
+    return features
 
 
 def get_user_tier_info(user) -> Optional[TierInfo]:
@@ -603,6 +1235,14 @@ def can_access_feature(user, feature: Feature) -> tuple[bool, Optional[str]]:
 
     if has_feature(user, feature):
         return True, None
+
+    subscription = get_active_subscription(user)
+    if feature in get_trial_feature_exclusions(user, subscription=subscription):
+        trial_tier = get_tier_from_string(getattr(getattr(subscription, "plan", None), "tier", ""))
+        return (
+            False,
+            f"{FEATURE_METADATA[feature]['name']} unlocks after upgrading your {TIER_INFO[trial_tier].name} trial to the full paid plan",
+        )
 
     required_tiers = [Tier.BASIC, Tier.PREMIUM, Tier.ENTERPRISE]
     for tier in required_tiers:
@@ -684,6 +1324,7 @@ def start_free_trial(user, *, auto_started: bool = False, source: str = "manual"
     )
     if not plan:
         tier_info = TIER_INFO[tier]
+        profile = get_plan_profile(tier)
         plan = Plan.objects.create(
             name=tier_info.name,
             tier=tier.value,
@@ -692,8 +1333,18 @@ def start_free_trial(user, *, auto_started: bool = False, source: str = "manual"
             price_yearly=TIER_PRICING[tier]["yearly"],
             billing_period="monthly",
             storage_limit_gb=TIER_STORAGE_LIMITS[tier],
-            max_upload_size_mb=10 if tier == Tier.FREE else 50 if tier == Tier.BASIC else 250 if tier == Tier.PREMIUM else 1024,
+            max_upload_size_mb=TIER_MAX_UPLOAD_SIZE_MB[tier],
             download_limit_monthly=0 if TIER_DOWNLOAD_LIMITS[tier] < 0 else TIER_DOWNLOAD_LIMITS[tier],
+            upload_limit_monthly=TIER_UPLOAD_LIMITS[tier],
+            message_limit_daily=TIER_MESSAGE_LIMITS[tier],
+            group_limit=TIER_GROUP_LIMITS[tier],
+            bookmark_limit=TIER_BOOKMARK_LIMITS[tier],
+            event_limit_monthly=TIER_EVENT_LIMITS[tier],
+            points_limit_monthly=TIER_POINTS_LIMITS[tier],
+            badge_limit=TIER_BADGE_LIMITS[tier],
+            search_results_limit=TIER_SEARCH_RESULTS_LIMITS[tier],
+            notification_delay_hours=TIER_NOTIFICATION_DELAY_HOURS[tier],
+            support_response_hours=TIER_SUPPORT_RESPONSE_HOURS[tier],
             can_download_unlimited=TIER_DOWNLOAD_LIMITS[tier] < 0,
             has_ads=tier == Tier.FREE,
             has_priority_support=tier in {Tier.PREMIUM, Tier.ENTERPRISE},
@@ -702,6 +1353,7 @@ def start_free_trial(user, *, auto_started: bool = False, source: str = "manual"
             is_featured=tier == Tier.BASIC,
             display_order=list(Tier).index(tier),
             is_active=True,
+            metadata=profile,
         )
 
     now = timezone.now()
@@ -818,11 +1470,16 @@ def get_feature_access_summary(user) -> dict:
     user_tier = get_user_tier(user)
     user_features = get_user_features(user)
     tier_info = TIER_INFO[user_tier]
+    plan_profile = get_plan_profile(user_tier)
     subscription = get_active_subscription(user, include_pending=True)
     plan = getattr(subscription, "plan", None)
     trial_eligibility = get_trial_eligibility(user)
     admin_access = get_admin_access_status(user)
     limits = get_user_plan_limits(user)
+    trial_locked_features = sorted(
+        feature.value
+        for feature in get_trial_feature_exclusions(user, subscription=subscription)
+    )
 
     categories = {
         "core": [],
@@ -898,7 +1555,7 @@ def get_feature_access_summary(user) -> dict:
         )
         trial_banner = {
             "title": "Your 7-day free trial is active",
-            "message": f"Your {tier_info.name} trial ends on {end_label}. Upgrade before it ends to keep your premium access.",
+            "message": f"Your {tier_info.name} trial ends on {end_label}. Trial access uses reduced caps, and some premium perks stay locked until you upgrade.",
             "cta_label": "Upgrade",
         }
     elif getattr(user, "is_authenticated", False) and user_tier == Tier.FREE:
@@ -918,6 +1575,9 @@ def get_feature_access_summary(user) -> dict:
     return {
         "tier": user_tier.value,
         "tier_name": tier_info.name,
+        "plan_type": plan_profile["plan_type"],
+        "ideal_for": plan_profile["ideal_for"],
+        "highlights": plan_profile["highlights"],
         "plan_name": getattr(plan, "name", tier_info.name if user_tier != Tier.FREE else "Free"),
         "plan_tier": plan_tier,
         "subscription_status": getattr(subscription, "status", None),
@@ -951,11 +1611,59 @@ def get_feature_access_summary(user) -> dict:
         "storage_limit_gb": limits.get("storage_gb", TIER_STORAGE_LIMITS[user_tier]),
         "max_upload_size_mb": limits.get("max_upload_mb", 10),
         "download_limit_monthly": limits.get("downloads_monthly", TIER_DOWNLOAD_LIMITS[user_tier]),
+        "upload_limit_monthly": limits.get("upload_limit_monthly", TIER_UPLOAD_LIMITS[user_tier]),
+        "message_limit_daily": limits.get("message_limit_daily", TIER_MESSAGE_LIMITS[user_tier]),
+        "group_limit": limits.get("group_limit", TIER_GROUP_LIMITS[user_tier]),
+        "bookmark_limit": limits.get("bookmark_limit", TIER_BOOKMARK_LIMITS[user_tier]),
+        "event_limit_monthly": limits.get("event_limit_monthly", TIER_EVENT_LIMITS[user_tier]),
+        "points_limit_monthly": limits.get("points_limit_monthly", TIER_POINTS_LIMITS[user_tier]),
+        "badge_limit": limits.get("badge_limit", TIER_BADGE_LIMITS[user_tier]),
+        "search_results_limit": limits.get("search_results_limit", TIER_SEARCH_RESULTS_LIMITS[user_tier]),
+        "notification_delay_hours": limits.get(
+            "notification_delay_hours",
+            TIER_NOTIFICATION_DELAY_HOURS[user_tier],
+        ),
+        "support_response_hours": limits.get(
+            "support_response_hours",
+            TIER_SUPPORT_RESPONSE_HOURS[user_tier],
+        ),
         "can_download_unlimited": limits.get("unlimited_downloads", False),
         "has_ads": limits.get("has_ads", True),
         "has_priority_support": limits.get("priority_support", False),
         "has_analytics": limits.get("analytics", False),
         "has_early_access": limits.get("early_access", False),
+        "is_trial_limited": bool(limits.get("is_trial_limited")),
+        "trial_locked_features": trial_locked_features,
+        "limits": {
+            "storage_gb": limits.get("storage_gb", TIER_STORAGE_LIMITS[user_tier]),
+            "max_upload_mb": limits.get("max_upload_mb", TIER_MAX_UPLOAD_SIZE_MB[user_tier]),
+            "downloads_monthly": limits.get("downloads_monthly", TIER_DOWNLOAD_LIMITS[user_tier]),
+            "unlimited_downloads": limits.get("unlimited_downloads", False),
+            "upload_limit_monthly": limits.get("upload_limit_monthly", TIER_UPLOAD_LIMITS[user_tier]),
+            "message_limit_daily": limits.get("message_limit_daily", TIER_MESSAGE_LIMITS[user_tier]),
+            "group_limit": limits.get("group_limit", TIER_GROUP_LIMITS[user_tier]),
+            "bookmark_limit": limits.get("bookmark_limit", TIER_BOOKMARK_LIMITS[user_tier]),
+            "event_limit_monthly": limits.get("event_limit_monthly", TIER_EVENT_LIMITS[user_tier]),
+            "points_limit_monthly": limits.get("points_limit_monthly", TIER_POINTS_LIMITS[user_tier]),
+            "badge_limit": limits.get("badge_limit", TIER_BADGE_LIMITS[user_tier]),
+            "search_results_limit": limits.get(
+                "search_results_limit",
+                TIER_SEARCH_RESULTS_LIMITS[user_tier],
+            ),
+            "notification_delay_hours": limits.get(
+                "notification_delay_hours",
+                TIER_NOTIFICATION_DELAY_HOURS[user_tier],
+            ),
+            "support_response_hours": limits.get(
+                "support_response_hours",
+                TIER_SUPPORT_RESPONSE_HOURS[user_tier],
+            ),
+            "has_ads": limits.get("has_ads", True),
+            "priority_support": limits.get("priority_support", False),
+            "analytics": limits.get("analytics", False),
+            "early_access": limits.get("early_access", False),
+            "is_trial_limited": bool(limits.get("is_trial_limited")),
+        },
         "features": sorted(feature.value for feature in user_features),
         "feature_flags": {
             feature.value: feature in user_features
