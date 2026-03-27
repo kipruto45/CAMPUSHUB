@@ -195,6 +195,30 @@ npm run android:configure-sdk
 
 The helper checks `ANDROID_SDK_ROOT`, `ANDROID_HOME`, `~/Android/Sdk`, and `~/android-sdk`.
 
+### Expo Web Build
+
+Build the web version from the same Expo app:
+
+```bash
+cd mobile
+npm run build:web
+```
+
+The static web export is written to `mobile/dist`.
+
+### Render Static Site
+
+`render.yaml` includes a `campushub-web` static site that builds from `mobile/` and publishes `mobile/dist`.
+
+Required public build-time variables for the web build:
+- `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_API_URL_FALLBACKS`
+
+Optional public auth variables if you want web social sign-in:
+- `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
+- `EXPO_PUBLIC_MICROSOFT_CLIENT_ID`
+- `EXPO_PUBLIC_MICROSOFT_REDIRECT_URI`
+
 ## Docker Setup (Recommended for Production)
 
 1. Build and run with Docker Compose:

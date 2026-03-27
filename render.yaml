@@ -40,13 +40,13 @@ services:
       - key: RESET_REFERENCE_DATA
         value: "false"
       - key: FRONTEND_BASE_URL
-        value: https://campushub-api.onrender.com
+        value: https://campushub-web.onrender.com
       - key: FRONTEND_URL
-        value: https://campushub-api.onrender.com
+        value: https://campushub-web.onrender.com
       - key: RESOURCE_SHARE_BASE_URL
-        value: https://campushub-api.onrender.com
+        value: https://campushub-web.onrender.com
       - key: MOBILE_DEEPLINK_HOST
-        value: campushub-api.onrender.com
+        value: campushub-web.onrender.com
       - key: BASE_URL
         value: https://campushub-api.onrender.com
       - key: OPENAI_API_KEY
@@ -126,6 +126,40 @@ services:
       - key: CELERY_BROKER_URL
         sync: false
       - key: CELERY_RESULT_BACKEND
+        sync: false
+
+  - type: web
+    runtime: static
+    name: campushub-web
+    rootDir: mobile
+    buildCommand: npm ci && npm run build:web
+    staticPublishPath: mobile/dist
+    buildFilter:
+      paths:
+        - mobile/**
+        - render.yaml
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: EXPO_PUBLIC_API_URL
+        value: https://campushub-api.onrender.com/api
+      - key: EXPO_PUBLIC_API_URL_FALLBACKS
+        value: https://campushub-api.onrender.com/api
+      - key: EXPO_PUBLIC_WEB_URL
+        value: https://campushub-web.onrender.com
+      - key: EXPO_PUBLIC_RESOURCE_SHARE_URL
+        value: https://campushub-web.onrender.com
+      - key: EXPO_PUBLIC_SHARE_BASE_URL
+        value: https://campushub-web.onrender.com
+      - key: EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: EXPO_PUBLIC_MICROSOFT_CLIENT_ID
+        sync: false
+      - key: EXPO_PUBLIC_MICROSOFT_TENANT_ID
+        value: organizations
+      - key: EXPO_PUBLIC_MICROSOFT_REDIRECT_URI
         sync: false
 
   - type: worker
