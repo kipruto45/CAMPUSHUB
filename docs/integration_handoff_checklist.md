@@ -323,6 +323,8 @@ IOS_BUNDLE_ID=
 These are not just missing values. They still need implementation work:
 
 - Mobile store setup and Expo/EAS config for `react-native-iap` (native IAP wiring is in the app, but store-side setup is still required).
+  - Install: `npx expo install react-native-iap`
+  - Configure App Store / Play Store products and billing permissions
 
 ## 18. Fastest Way To Send Me What Is Missing
 
